@@ -26,6 +26,7 @@ training:
   ckpt_basename: meeting_model
   preload: null
   tui: true
+  save_every_n_epochs: 4    # save+push to HF every N epochs; 0 = only at end of training
   hf:
     push: false
     repo_id: null            # auto-derived as {HF_USERNAME}/{experiment_name} if null

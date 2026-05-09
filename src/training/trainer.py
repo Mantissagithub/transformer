@@ -1,5 +1,6 @@
 from contextlib import nullcontext
 from pathlib import Path
+import time
 from typing import Any, Dict
 
 import torch
@@ -241,7 +242,15 @@ class Trainer:
                 for opt in self.optimizers:
                     opt.zero_grad()
                 micro = 0
+                _step_t = time.monotonic()
+                _tok_accum = 0
+                _toks_per_sec = 0.0
+                _grad_norm = 0.0
                 for step_in_epoch, batch in enumerate(iterator):
+                    if self.kind == "causal_lm":
+                        _tok_accum += batch["input_ids"].numel()
+                    else:
+                        _tok_accum += batch["encoder_input"].numel()
                     with self._autocast():
                         if self.kind == "causal_lm":
                             loss = self._causal_step(batch, vocab)
@@ -257,12 +266,19 @@ class Trainer:
                     micro += 1
 
                     if micro >= accum:
+                        _grad_norm = 0.0
                         if grad_clip and grad_clip > 0:
                             if self.scaler is not None:
                                 for opt in self.optimizers:
                                     self.scaler.unscale_(opt)
-                            nn.utils.clip_grad_norm_(self.model.parameters(), grad_clip)
+                            _grad_norm = nn.utils.clip_grad_norm_(
+                                self.model.parameters(), grad_clip
+                            ).item()
                         self._step_optimizers()
+                        _now = time.monotonic()
+                        _toks_per_sec = _tok_accum / max(_now - _step_t, 1e-9)
+                        _tok_accum = 0
+                        _step_t = _now
                         micro = 0
                         self.global_step += 1
 
@@ -277,6 +293,8 @@ class Trainer:
                                 global_step=self.global_step,
                                 loss=loss_val,
                                 lr=lr,
+                                grad_norm=_grad_norm,
+                                tokens_per_sec=_toks_per_sec,
                             )
                         elif hasattr(iterator, "set_postfix"):
                             iterator.set_postfix(loss=f"{loss_val:6.3f}")
@@ -285,19 +303,29 @@ class Trainer:
                             stop = True
                             break
 
+                save_every_n = cfg.training.get("save_every_n_epochs", 4)
+                is_last_epoch = (epoch == num_epochs - 1) or stop
+                hf_cfg = cfg.training.get("hf", None)
+
                 if self.dist_env.is_main:
-                    last_ckpt = checkpoint_path(
-                        cfg.training.ckpt_dir, cfg.training.ckpt_basename, epoch
-                    )
-                    save_checkpoint(
-                        last_ckpt,
-                        epoch=epoch,
-                        model=_maybe_unwrap(self.model),
-                        optimizers=self.optimizers,
-                        global_step=self.global_step,
-                    )
-                    if tui is not None:
-                        tui.event(f"epoch {epoch + 1} done · saved {last_ckpt.name}")
+                    if is_last_epoch or (save_every_n > 0 and epoch % save_every_n == 0):
+                        last_ckpt = checkpoint_path(
+                            cfg.training.ckpt_dir, cfg.training.ckpt_basename, epoch
+                        )
+                        save_checkpoint(
+                            last_ckpt,
+                            epoch=epoch,
+                            model=_maybe_unwrap(self.model),
+                            optimizers=self.optimizers,
+                            global_step=self.global_step,
+                        )
+                        if tui is not None:
+                            tui.event(f"epoch {epoch + 1} done · saved {last_ckpt.name}")
+
+                        if is_last_epoch:
+                            self._maybe_push_to_hub(last_ckpt, tui)
+                        elif save_every_n > 0 and hf_cfg is not None and hf_cfg.get("push", False):
+                            self._push_and_delete(last_ckpt, hf_cfg, tui)
 
             if tui is not None:
                 tui.event("training complete")
@@ -305,6 +333,32 @@ class Trainer:
         if self.dist_env.is_main:
             self.logger.close()
             self._maybe_push_to_hub(last_ckpt, tui)
+
+    def _push_and_delete(self, ckpt: Path, hf_cfg: Any, tui: TrainingTUI | None) -> None:
+        run_dir = Path.cwd()
+        cfg_snapshot = run_dir / ".hydra" / "config.yaml"
+        try:
+            push_checkpoint(
+                ckpt_path=ckpt,
+                repo_id=hf_cfg.get("repo_id", None),
+                private=bool(hf_cfg.get("private", False)),
+                commit_message=hf_cfg.get(
+                    "commit_message", f"{self.experiment_name}: epoch checkpoint"
+                ),
+                extra_files=[cfg_snapshot] if cfg_snapshot.exists() else [],
+            )
+            ckpt.unlink()
+            msg = f"pushed & deleted {ckpt.name}"
+            if tui is not None:
+                tui.event(msg, "bold magenta")
+            else:
+                print(msg)
+        except Exception as e:
+            msg = f"hf push failed (keeping local): {e}"
+            if tui is not None:
+                tui.event(msg, "bold red")
+            else:
+                print(msg)
 
     def _maybe_push_to_hub(self, ckpt: Path | None, tui: TrainingTUI | None) -> None:
         hf_cfg = self.cfg.training.get("hf", None)

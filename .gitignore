@@ -7,3 +7,5 @@ meetingbank_dataset.json
 .env
 outputs/
 runs/
+.claude/
+
