@@ -6,8 +6,11 @@ the cross-attn path would throw away the encoder output. the trainer relies
 on this guard to fail fast and steer the user toward causal_lm mode.
 """
 import pytest
+import torch
 from omegaconf import OmegaConf
 
+from src.components.attention.sliding_gqa import SlidingGroupedQueryAttention
+from src.components.attention.sliding_window import SlidingWindowAttention
 from src.model.builder import (
     ATTENTION_CAPABILITIES,
     build_transformer,
@@ -88,3 +91,40 @@ def test_build_transformer_rejects_self_attn_only(name, extra):
     cfg = _ed_cfg({"name": name, "n_heads": 4, **extra})
     with pytest.raises(ValueError, match="encoder-decoder"):
         build_transformer(cfg)
+
+
+# regression: with a key-padding mask whose real content is shorter than
+# `window_size`, query positions deep in the padded tail used to softmax
+# over an all-`-inf` row and NaN the loss. the fix in
+# sliding_window.py / sliding_gqa.py detects fully-masked rows and zeros
+# the attention output for them.
+def _padding_mask(seq_len: int, real_len: int) -> torch.Tensor:
+    m = torch.zeros(1, 1, seq_len, dtype=torch.int64)
+    m[..., :real_len] = 1
+    return m
+
+
+def test_sliding_window_no_nan_with_padding_outside_window():
+    torch.manual_seed(0)
+    d_model, n_heads, window = 16, 4, 4
+    seq_len, real_len = 32, 6  # real content well outside the window for late queries
+    attn = SlidingWindowAttention(d_model=d_model, n_heads=n_heads, window_size=window)
+    x = torch.randn(2, seq_len, d_model)
+    mask = _padding_mask(seq_len, real_len)
+    out = attn(x, x, x, mask=mask)
+    assert out.shape == (2, seq_len, d_model)
+    assert not torch.isnan(out).any(), "sliding_window NaN'd on fully-masked rows"
+
+
+def test_sliding_gqa_no_nan_with_padding_outside_window():
+    torch.manual_seed(0)
+    d_model, n_heads, n_kv, window = 16, 4, 2, 4
+    seq_len, real_len = 32, 6
+    attn = SlidingGroupedQueryAttention(
+        d_model=d_model, n_heads=n_heads, n_kv_heads=n_kv, window_size=window
+    )
+    x = torch.randn(2, seq_len, d_model)
+    mask = _padding_mask(seq_len, real_len)
+    out = attn(x, x, x, mask=mask)
+    assert out.shape == (2, seq_len, d_model)
+    assert not torch.isnan(out).any(), "sliding_gqa NaN'd on fully-masked rows"

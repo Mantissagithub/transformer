@@ -71,13 +71,22 @@ class SlidingGroupedQueryAttention(AttentionBase):
         # has ≤ window+1 entries, all in the new query's window → no mask. user
         # `mask` is dropped on the decode branch (fine for causal_lm; revisit
         # for padding-mask callers).
+        valid_row = None
         if past_kv is None or sq > 1:
             window = self._window_mask(sq, attn_key.shape[-2], q.device)
             combined = window if mask is None else (mask & window)
+            # padded queries whose window falls outside the real-content region
+            # would softmax over all -inf and NaN. neutralise the row for sdpa,
+            # then zero the output below so those positions contribute nothing.
+            bool_mask = combined.bool()
+            valid_row = bool_mask.any(dim=-1, keepdim=True)
+            safe_mask = bool_mask | ~valid_row
         else:
-            combined = None
+            safe_mask = None
 
-        out = scaled_dot_product(query, attn_key_x, attn_value_x, combined, self.dropout)
+        out = scaled_dot_product(query, attn_key_x, attn_value_x, safe_mask, self.dropout)
+        if valid_row is not None:
+            out = out * valid_row.to(out.dtype)
         out = out.transpose(1, 2).contiguous().view(b, sq, self.d_model)
         out = self.wo(out)
         if past_kv is not None:

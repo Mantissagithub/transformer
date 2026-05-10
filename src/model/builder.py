@@ -80,6 +80,7 @@ def _build_attention_for_layer(
     d_model: int,
     dropout: float,
     rope: Optional[nn.Module],
+    max_seq_len: Optional[int] = None,
 ):
     if "pattern" in cfg:
         pattern = list(cfg.pattern)
@@ -97,6 +98,11 @@ def _build_attention_for_layer(
     kwargs.setdefault("dropout", dropout)
     if name in _ROPE_AWARE:
         kwargs["rope"] = rope
+    # csa builds its own rope tables sized by max_seq_len; mla raises when the
+    # sequence overruns. for both, ensure the per-attention max_seq_len is at
+    # least the model's, so the run can't silently OOB into NaN-land.
+    if name in ("csa", "mla") and max_seq_len is not None:
+        kwargs["max_seq_len"] = max(max_seq_len, kwargs.get("max_seq_len", 0))
     return ATTENTION.build(name, **kwargs)
 
 
@@ -239,7 +245,9 @@ def build_causal_lm(cfg: DictConfig) -> CausalLM:
     blocks = []
     for i in range(n_layers):
         rope = _rope_for_layer(cfg.positional, pos, i)
-        attn = _build_attention_for_layer(cfg.attention, i, d_model, dropout, rope)
+        attn = _build_attention_for_layer(
+            cfg.attention, i, d_model, dropout, rope, max_seq_len=max_seq_len
+        )
         ffn = _build_ffn(cfg.feedforward, d_model, dropout)
         conns = _build_connections(cfg.connection, d_model, count=2, layer_idx=i)
         blocks.append(CausalBlock(attn, ffn, conns))

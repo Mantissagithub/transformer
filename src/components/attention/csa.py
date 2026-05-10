@@ -457,6 +457,14 @@ class CompressedSparseAttention(AttentionBase):
                 stacklevel=2,
             )
 
+        pos_offset = past_kv.total_seen if past_kv is not None else 0
+        if pos_offset + q.shape[1] > self.max_seq_len:
+            raise ValueError(
+                f"csa: pos_offset ({pos_offset}) + s ({q.shape[1]}) exceeds "
+                f"max_seq_len ({self.max_seq_len}). out-of-bounds rope indexing "
+                f"on cuda silently returns garbage and NaN-s training."
+            )
+
         # decode: single-token incremental step against an existing cache.
         if past_kv is not None and past_kv.total_seen > 0 and q.shape[1] == 1:
             out = self._decode_step(q, past_kv)

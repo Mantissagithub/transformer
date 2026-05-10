@@ -246,6 +246,8 @@ class Trainer:
                 _tok_accum = 0
                 _toks_per_sec = 0.0
                 _grad_norm = 0.0
+                is_last_epoch = (epoch == num_epochs - 1) or stop
+                save_every_n = cfg.training.get("save_every_n_epochs", 4)
                 for step_in_epoch, batch in enumerate(iterator):
                     if self.kind == "causal_lm":
                         _tok_accum += batch["input_ids"].numel()
@@ -303,10 +305,6 @@ class Trainer:
                             stop = True
                             break
 
-                save_every_n = cfg.training.get("save_every_n_epochs", 4)
-                is_last_epoch = (epoch == num_epochs - 1) or stop
-                hf_cfg = cfg.training.get("hf", None)
-
                 if self.dist_env.is_main:
                     if is_last_epoch or (save_every_n > 0 and epoch % save_every_n == 0):
                         last_ckpt = checkpoint_path(
@@ -320,12 +318,8 @@ class Trainer:
                             global_step=self.global_step,
                         )
                         if tui is not None:
-                            tui.event(f"epoch {epoch + 1} done · saved {last_ckpt.name}")
-
-                        if is_last_epoch:
-                            self._maybe_push_to_hub(last_ckpt, tui)
-                        elif save_every_n > 0 and hf_cfg is not None and hf_cfg.get("push", False):
-                            self._push_and_delete(last_ckpt, hf_cfg, tui)
+                            suffix = " (final)" if is_last_epoch else ""
+                            tui.event(f"epoch {epoch + 1} done · saved {last_ckpt.name}{suffix}")
 
             if tui is not None:
                 tui.event("training complete")
@@ -333,32 +327,6 @@ class Trainer:
         if self.dist_env.is_main:
             self.logger.close()
             self._maybe_push_to_hub(last_ckpt, tui)
-
-    def _push_and_delete(self, ckpt: Path, hf_cfg: Any, tui: TrainingTUI | None) -> None:
-        run_dir = Path.cwd()
-        cfg_snapshot = run_dir / ".hydra" / "config.yaml"
-        try:
-            push_checkpoint(
-                ckpt_path=ckpt,
-                repo_id=hf_cfg.get("repo_id", None),
-                private=bool(hf_cfg.get("private", False)),
-                commit_message=hf_cfg.get(
-                    "commit_message", f"{self.experiment_name}: epoch checkpoint"
-                ),
-                extra_files=[cfg_snapshot] if cfg_snapshot.exists() else [],
-            )
-            ckpt.unlink()
-            msg = f"pushed & deleted {ckpt.name}"
-            if tui is not None:
-                tui.event(msg, "bold magenta")
-            else:
-                print(msg)
-        except Exception as e:
-            msg = f"hf push failed (keeping local): {e}"
-            if tui is not None:
-                tui.event(msg, "bold red")
-            else:
-                print(msg)
 
     def _maybe_push_to_hub(self, ckpt: Path | None, tui: TrainingTUI | None) -> None:
         hf_cfg = self.cfg.training.get("hf", None)
