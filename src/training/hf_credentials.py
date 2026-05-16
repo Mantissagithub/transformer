@@ -5,44 +5,51 @@ from pathlib import Path
 
 from omegaconf import DictConfig, OmegaConf
 from rich.console import Console
-from rich.prompt import Confirm, Prompt
+from rich.prompt import Prompt
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
-def ensure_hf_credentials(cfg: DictConfig) -> None:
-    if not cfg.training.get("hf", {}).get("push", False):
-        return
-
-    console = Console()
+def ensure_hf_credentials(
+    cfg: DictConfig,
+    *,
+    console: Console | None = None,
+    prompt_if_missing: bool = False,
+) -> None:
+    console = console or Console()
     hf_cfg = cfg.training.get("hf", {})
+    push_enabled = bool(hf_cfg.get("push", False))
 
-    token = os.environ.get("HF_TOKEN")
-    if not token:
-        console.print("[yellow]HF push enabled but HF_TOKEN not found in env or .env.[/]")
-        token = Prompt.ask("Enter HF write token", password=True).strip()
-        if not token:
-            raise RuntimeError("HF_TOKEN is required when training.hf.push=true")
-        os.environ["HF_TOKEN"] = token
-        if Confirm.ask("Save HF_TOKEN to .env for next run?", default=True):
-            _append_env(PROJECT_ROOT / ".env", "HF_TOKEN", token)
+    token = _ensure_env_value(
+        env_var="HF_TOKEN",
+        prompt="Enter HF write token",
+        console=console,
+        required=push_enabled,
+        prompt_if_missing=prompt_if_missing,
+        password=True,
+    )
+    username = _ensure_env_value(
+        env_var="HF_USERNAME",
+        prompt="Enter HF username",
+        console=console,
+        required=push_enabled and not hf_cfg.get("repo_id"),
+        prompt_if_missing=prompt_if_missing,
+        password=False,
+    )
+
+    if not push_enabled:
+        return
 
     repo_id = hf_cfg.get("repo_id")
     if not repo_id:
-        username = os.environ.get("HF_USERNAME")
         if not username:
-            console.print("[yellow]HF_USERNAME not found in env or .env.[/]")
-            username = Prompt.ask("Enter HF username").strip()
-            if not username:
-                raise RuntimeError("HF_USERNAME is required when training.hf.push=true")
-            os.environ["HF_USERNAME"] = username
-            if Confirm.ask("Save HF_USERNAME to .env for next run?", default=True):
-                _append_env(PROJECT_ROOT / ".env", "HF_USERNAME", username)
+            raise RuntimeError("HF_USERNAME is required when training.hf.push=true")
 
         from huggingface_hub import HfApi
+
         api = HfApi(token=token)
-        base = f"{cfg.experiment_name}-{_config_suffix(cfg)}"
+        base = f"{cfg.experiment_name}-{_config_suffix(cfg)}-{_final_checkpoint_index(cfg)}"
         candidate = f"{username}/{base}"
         if not cfg.training.get("preload") and _repo_exists(api, candidate):
             n = 2
@@ -68,6 +75,32 @@ def ensure_hf_credentials(cfg: DictConfig) -> None:
     except Exception as exc:
         raise RuntimeError(f"HF token validation failed: {exc}") from exc
     console.print(f"[green]✓ HF authenticated as {user} → {repo_id}[/]")
+
+
+def _ensure_env_value(
+    *,
+    env_var: str,
+    prompt: str,
+    console: Console,
+    required: bool,
+    prompt_if_missing: bool,
+    password: bool,
+) -> str | None:
+    value = os.environ.get(env_var)
+    if value:
+        return value
+    if not required and not prompt_if_missing:
+        return None
+    console.print(f"[yellow]{env_var} not found in env or .env.[/]")
+    value = Prompt.ask(prompt, password=password).strip()
+    if not value:
+        if required:
+            raise RuntimeError(f"{env_var} is required for this run")
+        return None
+    os.environ[env_var] = value
+    _append_env(PROJECT_ROOT / ".env", env_var, value)
+    console.print(f"[green]Saved {env_var} to .env[/]")
+    return value
 
 
 def _append_env(path: Path, key: str, value: str) -> None:
@@ -102,3 +135,8 @@ def _config_suffix(cfg: DictConfig) -> str:
         parts.append(f"e{int(t.get('num_epochs', 1))}")
     parts.append(str(t.get("precision", "fp32")))
     return "-".join(p for p in parts if p)
+
+
+def _final_checkpoint_index(cfg: DictConfig) -> str:
+    num_epochs = int(cfg.training.get("num_epochs", 1))
+    return str(max(0, num_epochs - 1))

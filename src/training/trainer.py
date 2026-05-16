@@ -351,13 +351,13 @@ class Trainer:
             )
             msg = f"pushed → {url}"
             if tui is not None:
-                tui.event(msg, "bold magenta")
+                tui.event(msg)
             else:
                 print(msg)
         except Exception as e:  # pragma: no cover - network/auth
             msg = f"hf push failed: {e}"
             if tui is not None:
-                tui.event(msg, "bold red")
+                tui.event(msg)
             else:
                 print(msg)
 
