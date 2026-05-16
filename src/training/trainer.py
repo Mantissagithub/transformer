@@ -268,14 +268,15 @@ class Trainer:
                     micro += 1
 
                     if micro >= accum:
-                        _grad_norm = 0.0
-                        if grad_clip and grad_clip > 0:
-                            if self.scaler is not None:
-                                for opt in self.optimizers:
-                                    self.scaler.unscale_(opt)
-                            _grad_norm = nn.utils.clip_grad_norm_(
-                                self.model.parameters(), grad_clip
-                            ).item()
+                        if self.scaler is not None:
+                            for opt in self.optimizers:
+                                self.scaler.unscale_(opt)
+                        # always measure gnorm for telemetry; only actually clip
+                        # when grad_clip > 0 (max_norm=inf computes but no-ops).
+                        max_norm = grad_clip if (grad_clip and grad_clip > 0) else float("inf")
+                        _grad_norm = nn.utils.clip_grad_norm_(
+                            self.model.parameters(), max_norm
+                        ).item()
                         self._step_optimizers()
                         _now = time.monotonic()
                         _toks_per_sec = _tok_accum / max(_now - _step_t, 1e-9)
