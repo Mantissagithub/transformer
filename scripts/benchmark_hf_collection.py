@@ -747,15 +747,16 @@ def _write_readme(path: Path, results: list[BenchmarkResult], settings: dict[str
         f"- Precision: `{settings['precision']}`",
         "- Archived runs: `runs/<timestamp>/` under this folder.",
         "",
-        "| Repo | Status | Loss | PPL | Tok Acc | ROUGE-L | BLEU | Tok/s | Gen tok/s |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Attention Variant | Repo | Status | Loss | PPL | Tok Acc | ROUGE-L | BLEU | Tok/s | Gen tok/s |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for result in sorted(results, key=lambda r: (r.status != "ok", _sort_value(r.perplexity))):
         rows.append(
             "| "
             + " | ".join(
                 [
-                    f"`{result.repo_id}`",
+                    _attention_variant_label(result.repo_id),
+                    f"[`{result.repo_id}`](https://huggingface.co/{result.repo_id})",
                     result.status,
                     _fmt(result.eval_loss),
                     _fmt(result.perplexity),
@@ -781,6 +782,26 @@ def _write_readme(path: Path, results: list[BenchmarkResult], settings: dict[str
             )
         rows.extend(f"- {warning}" for warning in warnings)
     path.write_text("\n".join(rows) + "\n")
+
+
+def _attention_variant_label(repo_id: str) -> str:
+    variant = repo_id.split("/", 1)[1]
+    if variant.startswith("run_"):
+        variant = variant[len("run_") :]
+    if "-meetingbank-" in variant:
+        variant = variant.split("-meetingbank-", 1)[0]
+
+    labels = {
+        "mha": "mha (multi-head attention)",
+        "mqa": "mqa (multi-query attention)",
+        "gqa": "gqa (grouped-query attention)",
+        "gqa_rope": "gqa_rope (grouped-query attention + RoPE)",
+        "sliding_gqa": "sliding_gqa (sliding-window grouped-query attention)",
+        "csa": "csa (compressed sparse attention)",
+        "hca": "hca (heavily compressed attention)",
+        "mla": "mla (multi-head latent attention)",
+    }
+    return labels.get(variant, variant.replace("_", " "))
 
 
 def _sort_value(value: float | None) -> float:
