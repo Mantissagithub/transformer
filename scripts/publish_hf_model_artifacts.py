@@ -243,7 +243,7 @@ def _build_artifacts(
     )
     (out_dir / "README.md").write_text(readme)
 
-    tokenizer_artifacts = _copy_tokenizers(root, out_dir)
+    tokenizer_artifacts = _copy_tokenizers(root, out_dir, cfg)
     return [
         out_dir / "README.md",
         config_json,
@@ -1205,19 +1205,30 @@ def _footer_note(width: int, height: int, text: str) -> str:
     return f'<text x="{width - 72}" y="{height - 56}" text-anchor="end" font-family="Inter, Arial, sans-serif" font-size="13" fill="#64748b">{escape(text)}</text>'
 
 
-def _copy_tokenizers(root: Path, out_dir: Path) -> list[Path]:
+def _copy_tokenizers(root: Path, out_dir: Path, cfg: dict) -> list[Path]:
     transcript = root / "tokenizers" / "meetingbank_transcript.json"
     summary = root / "tokenizers" / "meetingbank_summary.json"
+    causal = root / "tokenizers" / "meetingbank_causal.json"
     if not transcript.exists() or not summary.exists():
         raise RuntimeError("MeetingBank tokenizer files are missing")
+    if str(cfg.get("model", {}).get("kind", "encoder_decoder")) == "causal_lm" and not causal.exists():
+        raise RuntimeError("MeetingBank causal tokenizer file is missing")
 
     tokenizer = out_dir / "tokenizer.json"
     transcript_out = out_dir / "transcript_tokenizer.json"
     summary_out = out_dir / "summary_tokenizer.json"
-    shutil.copyfile(transcript, tokenizer)
+    if str(cfg.get("model", {}).get("kind", "encoder_decoder")) == "causal_lm":
+        causal_out = out_dir / "causal_tokenizer.json"
+        shutil.copyfile(causal, tokenizer)
+        shutil.copyfile(causal, causal_out)
+    else:
+        shutil.copyfile(transcript, tokenizer)
     shutil.copyfile(transcript, transcript_out)
     shutil.copyfile(summary, summary_out)
-    return [tokenizer, transcript_out, summary_out]
+    artifacts = [tokenizer, transcript_out, summary_out]
+    if str(cfg.get("model", {}).get("kind", "encoder_decoder")) == "causal_lm":
+        artifacts.append(out_dir / "causal_tokenizer.json")
+    return artifacts
 
 
 def _upload_artifacts(api: HfApi, token: str, repo_id: str, artifacts: list[Path]) -> None:

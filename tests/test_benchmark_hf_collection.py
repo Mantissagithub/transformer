@@ -1,5 +1,6 @@
 import csv
 import importlib.util
+import json
 import math
 import sys
 from pathlib import Path
@@ -16,6 +17,7 @@ SPEC.loader.exec_module(benchmark)
 BenchmarkResult = benchmark.BenchmarkResult
 CoreMetricAccumulator = benchmark.CoreMetricAccumulator
 _checkpoint_file = benchmark._checkpoint_file
+_merge_results = benchmark._merge_results
 _publish_consolidated_outputs = benchmark._publish_consolidated_outputs
 _write_summary_csv = benchmark._write_summary_csv
 
@@ -82,10 +84,46 @@ def test_publish_consolidated_outputs_copies_latest_run_files(tmp_path):
     run_dir = root / "runs" / "20260518_000000"
     run_dir.mkdir(parents=True)
 
-    for name in ("README.md", "results.jsonl", "summary.csv", "settings.json"):
-        (run_dir / name).write_text(f"{name}-content\n")
+    result = BenchmarkResult(repo_id="owner/a", status="ok", eval_loss=1.2)
+    (run_dir / "results.jsonl").write_text(json.dumps(benchmark._json_ready(benchmark.asdict(result))) + "\n")
+    (run_dir / "settings.json").write_text(
+        json.dumps(
+            {
+                "collection_slug": "owner/collection",
+                "dataset": "meetingbank",
+                "split": "validation",
+                "generation_samples": 128,
+                "precision": "fp32",
+                "repo_id": [],
+                "started_at": "2026-05-18T00:00:00+00:00",
+            }
+        )
+        + "\n"
+    )
+    (run_dir / "README.md").write_text("run readme\n")
+    (run_dir / "summary.csv").write_text("repo_id,status\nowner/a,ok\n")
 
     _publish_consolidated_outputs(root, run_dir)
 
-    for name in ("README.md", "results.jsonl", "summary.csv", "settings.json"):
-        assert (root / name).read_text() == f"{name}-content\n"
+    assert "owner/a" in (root / "results.jsonl").read_text()
+    assert "owner/a" in (root / "summary.csv").read_text()
+    assert "Transformer Lab Benchmark" in (root / "README.md").read_text()
+    assert json.loads((root / "settings.json").read_text())["collection_slug"] == "owner/collection"
+
+
+def test_merge_results_replaces_matching_repo_and_keeps_others():
+    existing = [
+        BenchmarkResult(repo_id="owner/a", status="ok", eval_loss=1.0),
+        BenchmarkResult(repo_id="owner/b", status="ok", eval_loss=2.0),
+    ]
+    incoming = [
+        BenchmarkResult(repo_id="owner/b", status="ok", eval_loss=3.0),
+        BenchmarkResult(repo_id="owner/c", status="failed"),
+    ]
+
+    merged = {result.repo_id: result for result in _merge_results(existing, incoming)}
+
+    assert set(merged) == {"owner/a", "owner/b", "owner/c"}
+    assert merged["owner/a"].eval_loss == 1.0
+    assert merged["owner/b"].eval_loss == 3.0
+    assert merged["owner/c"].status == "failed"

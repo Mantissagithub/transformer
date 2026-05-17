@@ -15,5 +15,10 @@
   "bertscore": "auto",
   "max_new_tokens": 0,
   "repo_count": 7,
-  "started_at": "2026-05-17T17:21:42.654194+00:00"
+  "started_at": "2026-05-17T17:21:42.654194+00:00",
+  "last_partial_update_at": "2026-05-17T21:57:37.294924+00:00",
+  "last_partial_repo_ids": [
+    "Pradheep1647/run_csa-meetingbank-bs8-e20-fp32-19",
+    "Pradheep1647/run_hca-meetingbank-bs8-e20-fp32-19"
+  ]
 }

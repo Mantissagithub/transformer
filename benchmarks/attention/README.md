@@ -13,5 +13,10 @@
 | `Pradheep1647/run_mqa-meetingbank-bs8-e20-fp32-19` | ok | 2.791 | 16.29 | 0.5722 | 0.3804 | 23.15 | 4972 | 224.6 |
 | `Pradheep1647/run_gqa-meetingbank-bs8-e20-fp32-19` | ok | 2.811 | 16.63 | 0.5737 | 0.3843 | 23.11 | 4289 | 218.2 |
 | `Pradheep1647/run_sliding_gqa-meetingbank-bs8-e20-fp32-19` | ok | 2.843 | 17.17 | 0.573 | 0.4149 | 26.24 | 4939 | 168.7 |
-| `Pradheep1647/run_csa-meetingbank-bs8-e20-fp32-19` | ok | 10 | 2.213e+04 | 0.04232 | 0.07588 | 0.1682 | 2823 | 109.6 |
-| `Pradheep1647/run_hca-meetingbank-bs8-e20-fp32-19` | ok | 10.16 | 2.585e+04 | 0.04029 | 0.0296 | 0.02163 | 6811 | 396 |
+| `Pradheep1647/run_csa-meetingbank-bs8-e20-fp32-19` | ok | 3.388 | 29.61 | 0.4543 | 0.1547 | 4.631 | 2570 | 113.6 |
+| `Pradheep1647/run_hca-meetingbank-bs8-e20-fp32-19` | ok | 3.514 | 33.57 | 0.4417 | 0.08286 | 1.919 | 4119 | 166.2 |
+
+## Warnings
+
+- replaced published tokenizer.json with local causal tokenizer fallback for Pradheep1647/run_csa-meetingbank-bs8-e20-fp32-19
+- replaced published tokenizer.json with local causal tokenizer fallback for Pradheep1647/run_hca-meetingbank-bs8-e20-fp32-19

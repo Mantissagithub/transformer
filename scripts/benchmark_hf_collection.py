@@ -119,6 +119,7 @@ class RepoArtifacts:
     checkpoint_file: str
     revision: str | None
     tokenizer_dir: Path
+    warnings: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -217,6 +218,7 @@ def _benchmark_repo(api: HfApi, repo_id: str, args: argparse.Namespace, token: s
     try:
         with tempfile.TemporaryDirectory(prefix="transformer-bench-") as tmp:
             artifacts = _download_artifacts(api, repo_id, Path(tmp), token)
+            result.warnings.extend(artifacts.warnings)
             result.checkpoint_file = artifacts.checkpoint_file
             result.config_revision = artifacts.revision
             result.checkpoint_size_mb = artifacts.checkpoint_path.stat().st_size / 1_000_000
@@ -304,9 +306,28 @@ def _download_artifacts(api: HfApi, repo_id: str, tmp_root: Path, token: str | N
     _download_tokenizer_if_present(
         repo_id, files, "summary_tokenizer.json", tokenizer_dir / "meetingbank_summary.json", token
     )
-    _download_tokenizer_if_present(
-        repo_id, files, "tokenizer.json", tokenizer_dir / "meetingbank_causal.json", token
-    )
+    warnings: list[str] = []
+    if "causal_tokenizer.json" in files:
+        _download_tokenizer_if_present(
+            repo_id, files, "causal_tokenizer.json", tokenizer_dir / "meetingbank_causal.json", token
+        )
+    elif "tokenizer.json" in files:
+        _download_tokenizer_if_present(
+            repo_id, files, "tokenizer.json", tokenizer_dir / "meetingbank_causal.json", token
+        )
+
+    # Older published causal checkpoints uploaded transcript tokenizer.json
+    # instead of the unified causal tokenizer. Fall back to the local repo
+    # causal tokenizer so benchmarking can reflect the actual checkpoint.
+    config = OmegaConf.load(config_path)
+    model_kind = str(config.model.get("kind", "encoder_decoder"))
+    local_causal = Path("tokenizers") / "meetingbank_causal.json"
+    if model_kind == "causal_lm" and not (tokenizer_dir / "meetingbank_causal.json").exists() and local_causal.exists():
+        (tokenizer_dir / "meetingbank_causal.json").write_bytes(local_causal.read_bytes())
+        warnings.append(f"used local causal tokenizer fallback for {repo_id}")
+    elif model_kind == "causal_lm" and "causal_tokenizer.json" not in files and local_causal.exists():
+        (tokenizer_dir / "meetingbank_causal.json").write_bytes(local_causal.read_bytes())
+        warnings.append(f"replaced published tokenizer.json with local causal tokenizer fallback for {repo_id}")
 
     info = _hf_call(f"fetch model info for {repo_id}", api.model_info, repo_id=repo_id)
     return RepoArtifacts(
@@ -316,6 +337,7 @@ def _download_artifacts(api: HfApi, repo_id: str, tmp_root: Path, token: str | N
         checkpoint_file=checkpoint_file,
         revision=getattr(info, "sha", None),
         tokenizer_dir=tokenizer_dir,
+        warnings=warnings,
     )
 
 
@@ -668,8 +690,42 @@ def _run_output_dir(root: Path) -> Path:
 
 
 def _publish_consolidated_outputs(root: Path, run_dir: Path) -> None:
-    for name in ("README.md", "results.jsonl", "summary.csv", "settings.json"):
-        (root / name).write_text((run_dir / name).read_text())
+    run_settings = json.loads((run_dir / "settings.json").read_text())
+    run_results = _load_results(run_dir / "results.jsonl")
+
+    consolidated_results = _load_results(root / "results.jsonl")
+    merged_results = _merge_results(consolidated_results, run_results)
+
+    if not consolidated_results or not run_settings.get("repo_id"):
+        settings = run_settings
+    else:
+        settings = json.loads((root / "settings.json").read_text())
+        settings["last_partial_update_at"] = run_settings.get("started_at")
+        settings["last_partial_repo_ids"] = list(run_settings.get("repo_id", []))
+
+    (root / "results.jsonl").write_text(
+        "".join(json.dumps(_json_ready(asdict(result)), sort_keys=True) + "\n" for result in merged_results)
+    )
+    (root / "settings.json").write_text(json.dumps(settings, indent=2) + "\n")
+    _write_summary_csv(root / "summary.csv", merged_results)
+    _write_readme(root / "README.md", merged_results, settings)
+
+
+def _load_results(path: Path) -> list[BenchmarkResult]:
+    if not path.exists():
+        return []
+    return [
+        BenchmarkResult(**json.loads(line))
+        for line in path.read_text().splitlines()
+        if line.strip()
+    ]
+
+
+def _merge_results(existing: list[BenchmarkResult], incoming: list[BenchmarkResult]) -> list[BenchmarkResult]:
+    merged: dict[str, BenchmarkResult] = {result.repo_id: result for result in existing}
+    for result in incoming:
+        merged[result.repo_id] = result
+    return list(merged.values())
 
 
 def _write_summary_csv(path: Path, results: list[BenchmarkResult]) -> None:
