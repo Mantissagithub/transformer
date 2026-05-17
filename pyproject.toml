@@ -21,6 +21,7 @@ dependencies = [
 neptune = ["neptune", "neptune-tensorboard"]
 wandb = ["wandb"]
 dev = ["pytest"]
+benchmark = ["evaluate", "rouge-score", "sacrebleu", "bert-score", "psutil"]
 
 [project.scripts]
 train = "src.cli.train:main"

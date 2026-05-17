@@ -8,4 +8,4 @@ meetingbank_dataset.json
 outputs/
 runs/
 .claude/
-
+*.egg-info

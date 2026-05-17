@@ -1,2 +1,0 @@
-[console_scripts]
-train = src.cli.train:main
