@@ -45,3 +45,5 @@ def build_cosine_warmup(
         return min_lr_ratio + (1.0 - min_lr_ratio) * cos
 
     return [LambdaLR(opt, lr_lambda=fn) for opt in optimizers]
+
+# @SCHEDULER.register()

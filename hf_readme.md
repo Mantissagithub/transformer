@@ -30,6 +30,12 @@ Custom PyTorch Transformer checkpoint trained on MeetingBank for meeting summari
 | Precision | `{precision}` |
 | Checkpoint | `{checkpoint_file}` |
 
+## Architecture
+
+![Architecture diagram]({architecture_file})
+
+Static architecture diagram generated from this run's `config.json`, including model width, depth, sequence dimensions, and attention-specific settings.
+
 ## Training Loss
 
 ![Training loss](loss_curve.svg)
@@ -46,6 +52,7 @@ Raw curve data is available in [`loss_curve.csv`](loss_curve.csv).
 |---|---|
 | `{checkpoint_file}` | PyTorch checkpoint containing `model_state_dict`, optimizer states, epoch, and global step. |
 | `config.json` | Training and architecture config converted from the Hydra run config. |
+| `{architecture_file}` | Architecture diagram generated from the saved model config, with block shapes and dimensions. |
 | `tokenizer.json` | MeetingBank transcript tokenizer alias for source inputs. |
 | `transcript_tokenizer.json` | Explicit MeetingBank transcript tokenizer. |
 | `summary_tokenizer.json` | MeetingBank summary tokenizer for target text. |
@@ -64,7 +71,7 @@ from huggingface_hub import hf_hub_download
 from omegaconf import OmegaConf
 
 import src  # registers components
-from src.model.builder import build_transformer
+from src.model.builder import {builder_function}
 
 repo_id = "{repo_id}"
 
@@ -72,7 +79,7 @@ config_path = hf_hub_download(repo_id=repo_id, filename="config.json")
 checkpoint_path = hf_hub_download(repo_id=repo_id, filename="{checkpoint_file}")
 
 cfg = OmegaConf.load(config_path)
-model = build_transformer(cfg)
+model = {builder_function}(cfg)
 
 state = torch.load(checkpoint_path, map_location="cpu")
 model.load_state_dict(state["model_state_dict"])

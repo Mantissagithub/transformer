@@ -1,0 +1,25 @@
+Metadata-Version: 2.4
+Name: transformer-research
+Version: 0.1.0
+Summary: Plug-and-play transformer research framework: swappable attention/FFN/norm/positional/connection/optimizer/dataset via Hydra, with encoder-decoder and decoder-only paths.
+License: Apache-2.0
+Keywords: transformer,pytorch,hydra,pretraining,research
+Requires-Python: >=3.10
+License-File: LICENSE
+Requires-Dist: torch>=2.1
+Requires-Dist: datasets
+Requires-Dist: tokenizers
+Requires-Dist: tensorboard
+Requires-Dist: tqdm
+Requires-Dist: hydra-core>=1.3
+Requires-Dist: omegaconf>=2.3
+Requires-Dist: pyyaml
+Requires-Dist: python-dotenv
+Provides-Extra: neptune
+Requires-Dist: neptune; extra == "neptune"
+Requires-Dist: neptune-tensorboard; extra == "neptune"
+Provides-Extra: wandb
+Requires-Dist: wandb; extra == "wandb"
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Dynamic: license-file
