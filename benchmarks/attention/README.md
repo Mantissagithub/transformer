@@ -1,6 +1,6 @@
 # Transformer Lab Benchmark
 
-- Collection: `Pradheep1647/transformer-lab-6a07fe3185f5728e217997e0`
+- Collection: [`Pradheep1647/transformer-lab`](https://huggingface.co/collections/Pradheep1647/transformer-lab)
 - Dataset: `meetingbank` / `validation`
 - Generation samples: `128`
 - Precision: `fp32`
