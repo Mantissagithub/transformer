@@ -1,0 +1,4 @@
+name: polynomial_warmup
+warmup_steps: 1000
+power: 1.0
+min_lr_ratio: 0.0

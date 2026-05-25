@@ -6,7 +6,9 @@ from torch.optim import Optimizer
 
 from src.registry import OPTIMIZER
 
+from .ademamix import AdEMAMix
 from .lion import Lion
+from .mars import MarsAdamW
 
 
 @OPTIMIZER.register("adamw")
@@ -23,6 +25,50 @@ def build_adamw(
 @OPTIMIZER.register("lion")
 def build_lion(model: nn.Module, lr: float = 1e-4, weight_decay: float = 0.0, **kwargs) -> List[Optimizer]:
     return [Lion(model.parameters(), lr=lr, weight_decay=weight_decay)]
+
+
+@OPTIMIZER.register("ademamix")
+def build_ademamix(
+    model: nn.Module,
+    lr: float = 1e-4,
+    weight_decay: float = 0.0,
+    betas: tuple = (0.9, 0.999, 0.9999),
+    alpha: float = 5.0,
+    eps: float = 1e-8,
+    **kwargs,
+) -> List[Optimizer]:
+    return [
+        AdEMAMix(
+            model.parameters(),
+            lr=lr,
+            weight_decay=weight_decay,
+            betas=tuple(betas),
+            alpha=alpha,
+            eps=eps,
+        )
+    ]
+
+
+@OPTIMIZER.register("mars_adamw")
+def build_mars_adamw(
+    model: nn.Module,
+    lr: float = 1e-4,
+    weight_decay: float = 0.01,
+    betas: tuple = (0.9, 0.999),
+    gamma: float = 0.025,
+    eps: float = 1e-8,
+    **kwargs,
+) -> List[Optimizer]:
+    return [
+        MarsAdamW(
+            model.parameters(),
+            lr=lr,
+            weight_decay=weight_decay,
+            betas=tuple(betas),
+            gamma=gamma,
+            eps=eps,
+        )
+    ]
 
 
 @OPTIMIZER.register("adafactor")

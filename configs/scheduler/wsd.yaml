@@ -1,0 +1,5 @@
+name: wsd
+warmup_steps: 1000
+stable_ratio: 0.9
+min_lr_ratio: 0.0
+decay: cosine

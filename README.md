@@ -51,8 +51,8 @@ No trainer or builder edits needed.
 | Normalization | layernorm, rmsnorm |
 | Positional | sinusoidal, rope, alibi, rope/nope hybrid |
 | Connection | residual, residual_sandwich, hyperconnection, mhc |
-| Optimizer | adamw, muon_adamw, lion, adafactor |
-| Scheduler | cosine_warmup, linear_warmup, none |
+| Optimizer | adamw, muon_adamw, lion, adafactor, ademamix, mars_adamw |
+| Scheduler | cosine_warmup, linear_warmup, inverse_sqrt_warmup, polynomial_warmup, wsd, none |
 | Dataset | meetingbank, multi_news, fineweb_edu, c4, wikitext, wikipedia |
 
 Plus: bf16/fp16 autocast, gradient accumulation, `torch.compile`, DDP/FSDP, HF Hub push, KV-cache `.generate()` across every attention variant, Rich TUI.
