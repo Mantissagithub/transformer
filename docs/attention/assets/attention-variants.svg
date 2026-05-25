@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
+  <title id="title">Attention variants in Transformer Lab</title>
+  <desc id="desc">A hand-drawn style overview connecting dense, shared key-value, local, hybrid, latent, and compressed attention variants.</desc>
+  <defs>
+    <filter id="paperShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#1f2937" flood-opacity="0.14"/>
+    </filter>
+    <filter id="roughen">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.2"/>
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10" fill="none" stroke="#334155" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      .bg { fill: #fbfaf7; }
+      .ink { stroke: #1f2937; stroke-linecap: round; stroke-linejoin: round; }
+      .muted { fill: #64748b; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .title { fill: #111827; font: 700 40px Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: 0; }
+      .subtitle { fill: #475569; font: 400 20px Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: 0; }
+      .label { fill: #111827; font: 700 25px Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: 0; }
+      .body { fill: #334155; font: 400 17px Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: 0; }
+      .tag { fill: #475569; font: 600 13px Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: 0; }
+      .small { fill: #475569; font: 400 14px Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: 0; }
+      .card { filter: url(#paperShadow); }
+      .sketch { filter: url(#roughen); }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1440" height="900"/>
+  <path d="M54 50 C219 22, 382 40, 542 34 C760 26, 920 22, 1125 39 C1246 49, 1334 42, 1396 62" fill="none" stroke="#e7dcc7" stroke-width="3" stroke-linecap="round" opacity="0.85"/>
+  <path d="M32 846 C196 878, 385 849, 574 864 C804 882, 1038 842, 1394 866" fill="none" stroke="#e7dcc7" stroke-width="3" stroke-linecap="round" opacity="0.85"/>
+
+  <text x="90" y="86" class="title">Attention variants in Transformer Lab</text>
+  <text x="92" y="123" class="subtitle">same model interface, different memory and context tradeoffs</text>
+
+  <g transform="translate(92 166)">
+    <rect x="0" y="0" width="376" height="258" rx="18" fill="#ffffff" stroke="#1f2937" stroke-width="2.4" class="card sketch"/>
+    <text x="28" y="47" class="label">Dense attention</text>
+    <text x="28" y="82" class="body">every query can see every key</text>
+    <text x="28" y="113" class="small">best baseline, most direct comparison</text>
+    <g transform="translate(34 142)">
+      <rect x="0" y="0" width="182" height="34" rx="17" fill="#e0f2fe" stroke="#0369a1" stroke-width="2"/>
+      <text x="20" y="23" class="tag">mha</text>
+      <rect x="0" y="50" width="182" height="34" rx="17" fill="#e0f2fe" stroke="#0369a1" stroke-width="2"/>
+      <text x="20" y="73" class="tag">gqa_rope</text>
+      <rect x="202" y="0" width="112" height="34" rx="17" fill="#f1f5f9" stroke="#64748b" stroke-width="2"/>
+      <text x="223" y="23" class="tag">full KV</text>
+      <rect x="202" y="50" width="112" height="34" rx="17" fill="#f1f5f9" stroke="#64748b" stroke-width="2"/>
+      <text x="222" y="73" class="tag">RoPE</text>
+    </g>
+  </g>
+
+  <g transform="translate(534 166)">
+    <rect x="0" y="0" width="376" height="258" rx="18" fill="#ffffff" stroke="#1f2937" stroke-width="2.4" class="card sketch"/>
+    <text x="28" y="47" class="label">Shared KV heads</text>
+    <text x="28" y="82" class="body">many query heads, fewer KV heads</text>
+    <text x="28" y="113" class="small">smaller decode cache and bandwidth</text>
+    <g transform="translate(34 140)">
+      <path d="M22 26 C64 4, 112 3, 158 26" fill="none" stroke="#9333ea" stroke-width="3"/>
+      <path d="M22 78 C64 100, 112 100, 158 78" fill="none" stroke="#9333ea" stroke-width="3"/>
+      <circle cx="23" cy="26" r="10" fill="#f3e8ff" stroke="#9333ea" stroke-width="2"/>
+      <circle cx="158" cy="26" r="10" fill="#f3e8ff" stroke="#9333ea" stroke-width="2"/>
+      <circle cx="23" cy="78" r="10" fill="#f3e8ff" stroke="#9333ea" stroke-width="2"/>
+      <circle cx="158" cy="78" r="10" fill="#f3e8ff" stroke="#9333ea" stroke-width="2"/>
+      <rect x="206" y="3" width="116" height="34" rx="17" fill="#f3e8ff" stroke="#9333ea" stroke-width="2"/>
+      <text x="228" y="26" class="tag">mqa</text>
+      <rect x="206" y="55" width="116" height="34" rx="17" fill="#f3e8ff" stroke="#9333ea" stroke-width="2"/>
+      <text x="228" y="78" class="tag">gqa</text>
+    </g>
+  </g>
+
+  <g transform="translate(976 166)">
+    <rect x="0" y="0" width="376" height="258" rx="18" fill="#ffffff" stroke="#1f2937" stroke-width="2.4" class="card sketch"/>
+    <text x="28" y="47" class="label">Local and hybrid</text>
+    <text x="28" y="82" class="body">restrict most layers to nearby tokens</text>
+    <text x="28" y="113" class="small">local context is cheaper than global context</text>
+    <g transform="translate(34 143)">
+      <path d="M6 42 L284 42" stroke="#64748b" stroke-width="2.2"/>
+      <path d="M34 18 L34 66 M79 18 L79 66 M124 18 L124 66 M169 18 L169 66 M214 18 L214 66 M259 18 L259 66" stroke="#94a3b8" stroke-width="2"/>
+      <path d="M34 42 C69 2, 121 2, 169 42 C206 73, 238 74, 259 42" fill="none" stroke="#16a34a" stroke-width="3"/>
+      <rect x="0" y="92" width="150" height="34" rx="17" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+      <text x="18" y="115" class="tag">sliding_window</text>
+      <rect x="168" y="92" width="160" height="34" rx="17" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+      <text x="185" y="115" class="tag">gemma3_hybrid</text>
+    </g>
+  </g>
+
+  <path d="M478 294 C498 290, 512 290, 528 292" fill="none" stroke="#334155" stroke-width="2.8" marker-end="url(#arrow)" class="sketch"/>
+  <path d="M920 294 C940 290, 954 290, 970 292" fill="none" stroke="#334155" stroke-width="2.8" marker-end="url(#arrow)" class="sketch"/>
+
+  <g transform="translate(160 506)">
+    <rect x="0" y="0" width="514" height="246" rx="18" fill="#ffffff" stroke="#1f2937" stroke-width="2.4" class="card sketch"/>
+    <text x="30" y="47" class="label">Latent KV cache</text>
+    <text x="30" y="82" class="body">cache a compact latent and reconstruct K/V when needed</text>
+    <text x="30" y="114" class="small">good when memory is the bottleneck</text>
+    <g transform="translate(40 144)">
+      <rect x="0" y="0" width="104" height="42" rx="12" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+      <text x="35" y="27" class="tag">token</text>
+      <path d="M116 21 C145 18, 166 18, 195 21" fill="none" stroke="#334155" stroke-width="2.4" marker-end="url(#arrow)"/>
+      <rect x="210" y="0" width="104" height="42" rx="12" fill="#ffedd5" stroke="#ea580c" stroke-width="2"/>
+      <text x="241" y="27" class="tag">latent</text>
+      <path d="M328 21 C356 18, 377 18, 406 21" fill="none" stroke="#334155" stroke-width="2.4" marker-end="url(#arrow)"/>
+      <rect x="420" y="0" width="48" height="42" rx="12" fill="#fee2e2" stroke="#dc2626" stroke-width="2"/>
+      <text x="437" y="27" class="tag">K</text>
+      <rect x="420" y="58" width="48" height="42" rx="12" fill="#fee2e2" stroke="#dc2626" stroke-width="2"/>
+      <text x="437" y="85" class="tag">V</text>
+      <rect x="210" y="58" width="104" height="42" rx="17" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+      <text x="245" y="85" class="tag">mla</text>
+    </g>
+  </g>
+
+  <g transform="translate(766 506)">
+    <rect x="0" y="0" width="514" height="246" rx="18" fill="#ffffff" stroke="#1f2937" stroke-width="2.4" class="card sketch"/>
+    <text x="30" y="47" class="label">Compressed and sparse</text>
+    <text x="30" y="82" class="body">compress blocks, then attend to less memory</text>
+    <text x="30" y="114" class="small">for long-context experiments under tighter KV budgets</text>
+    <g transform="translate(42 142)">
+      <rect x="0" y="0" width="54" height="34" rx="9" fill="#ccfbf1" stroke="#0f766e" stroke-width="2"/>
+      <rect x="66" y="0" width="54" height="34" rx="9" fill="#ccfbf1" stroke="#0f766e" stroke-width="2"/>
+      <rect x="132" y="0" width="54" height="34" rx="9" fill="#ccfbf1" stroke="#0f766e" stroke-width="2"/>
+      <rect x="198" y="0" width="54" height="34" rx="9" fill="#ccfbf1" stroke="#0f766e" stroke-width="2"/>
+      <path d="M20 49 C75 78, 174 78, 231 49" fill="none" stroke="#0f766e" stroke-width="3" marker-end="url(#arrow)"/>
+      <rect x="94" y="84" width="74" height="42" rx="12" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+      <text x="113" y="111" class="tag">block</text>
+      <rect x="300" y="0" width="120" height="34" rx="17" fill="#ccfbf1" stroke="#0f766e" stroke-width="2"/>
+      <text x="329" y="23" class="tag">csa</text>
+      <rect x="300" y="54" width="120" height="34" rx="17" fill="#ccfbf1" stroke="#0f766e" stroke-width="2"/>
+      <text x="329" y="77" class="tag">hca</text>
+    </g>
+  </g>
+
+  <path d="M638 760 C701 807, 783 806, 844 760" fill="none" stroke="#334155" stroke-width="2.8" marker-end="url(#arrow)" class="sketch"/>
+  <text x="575" y="828" class="muted" style="font-size:16px;font-weight:600">docs only: one interface, several attention/memory strategies</text>
+</svg>
