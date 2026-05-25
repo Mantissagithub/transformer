@@ -46,14 +46,14 @@ No trainer or builder edits needed.
 
 | Group | Choices |
 |-------|---------|
-| Attention | mha, gqa, gqa_rope, mqa, sliding_window, sliding_gqa, gemma3_hybrid, csa, hca, mla. See [`docs/attention`](docs/attention/README.md) for the variant notes and diagrams. |
-| FFN | relu, swiglu, geglu |
-| Normalization | layernorm, rmsnorm |
-| Positional | sinusoidal, rope, alibi, rope/nope hybrid |
-| Connection | residual, residual_sandwich, hyperconnection, mhc |
-| Optimizer | adamw, muon_adamw, lion, adafactor, ademamix, mars_adamw |
-| Scheduler | cosine_warmup, linear_warmup, inverse_sqrt_warmup, polynomial_warmup, wsd, none |
-| Dataset | meetingbank, multi_news, fineweb_edu, c4, wikitext, wikipedia |
+| Attention | mha, gqa, gqa_rope, mqa, sliding_window, sliding_gqa, gemma3_hybrid, csa, hca, mla. See [`docs/attention.md`](docs/attention.md) for the variant notes and diagrams. |
+| FFN | relu, swiglu, geglu. See [`docs/feedforward.md`](docs/feedforward.md). |
+| Normalization | layernorm, rmsnorm. See [`docs/normalization.md`](docs/normalization.md). |
+| Positional | sinusoidal, rope, alibi, rope/nope hybrid. See [`docs/positional.md`](docs/positional.md). |
+| Connection | residual, residual_sandwich, hyperconnection, mhc. See [`docs/connections.md`](docs/connections.md). |
+| Optimizer | adamw, muon_adamw, lion, adafactor, ademamix, mars_adamw. See [`docs/optimizers.md`](docs/optimizers.md). |
+| Scheduler | cosine_warmup, linear_warmup, inverse_sqrt_warmup, polynomial_warmup, wsd, none. See [`docs/schedulers.md`](docs/schedulers.md). |
+| Dataset | meetingbank, multi_news, fineweb_edu, c4, wikitext, wikipedia. See [`docs/datasets.md`](docs/datasets.md). |
 
 Plus: bf16/fp16 autocast, gradient accumulation, `torch.compile`, DDP/FSDP, HF Hub push, KV-cache `.generate()` across every attention variant, Rich TUI.
 
