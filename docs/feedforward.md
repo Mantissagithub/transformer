@@ -10,7 +10,7 @@ Implementation: [`vanilla.py`](../src/components/feedforward/vanilla.py)
 Config: [`relu_ffn.yaml`](../configs/feedforward/relu_ffn.yaml)
 
 $$
-\operatorname{FFN}(x) = W_2\,\operatorname{ReLU}(W_1x + b_1) + b_2
+\mathrm{FFN}(x) = W_2\,\mathrm{ReLU}(W_1x + b_1) + b_2
 $$
 
 This is the original transformer-style position-wise feed-forward block. It is the simplest baseline: one expansion projection, one ReLU nonlinearity, dropout, then one projection back to `d_model`.
@@ -25,7 +25,7 @@ Implementation: [`geglu.py`](../src/components/feedforward/geglu.py)
 Config: [`geglu.yaml`](../configs/feedforward/geglu.yaml)
 
 $$
-\operatorname{GEGLU}(x) = W_{\text{down}}\left(\operatorname{GELU}(W_g x) \odot W_u x\right)
+\mathrm{GEGLU}(x) = W_{\text{down}}\left(\mathrm{GELU}(W_g x) \odot W_u x\right)
 $$
 
 `geglu` splits the expansion into a gate branch and an up branch. The GELU-activated gate decides which expanded channels pass through. In this repo both expansion projections are bias-free, then dropout is applied before the down projection.
@@ -40,7 +40,7 @@ Implementation: [`swiglu.py`](../src/components/feedforward/swiglu.py)
 Config: [`swiglu.yaml`](../configs/feedforward/swiglu.yaml)
 
 $$
-\operatorname{SwiGLU}(x) = W_{\text{down}}\left(\operatorname{SiLU}(W_g x) \odot W_u x\right)
+\mathrm{SwiGLU}(x) = W_{\text{down}}\left(\mathrm{SiLU}(W_g x) \odot W_u x\right)
 $$
 
 `swiglu` is the modern gated MLP default in many decoder-only transformer families. The SiLU gate is smoother than ReLU and keeps small negative inputs active instead of hard-zeroing them.

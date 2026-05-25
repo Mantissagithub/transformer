@@ -10,7 +10,7 @@ Implementation: [`residual.py`](../src/components/connections/residual.py)
 Config: [`residual.yaml`](../configs/connection/residual.yaml)
 
 $$
-h_{\ell+1} = h_\ell + \operatorname{Dropout}(F(\operatorname{Norm}(h_\ell)))
+h_{\ell+1} = h_\ell + \mathrm{Dropout}(F(\mathrm{Norm}(h_\ell)))
 $$
 
 This is the normal pre-norm residual block. `F` is the attention or feed-forward sublayer. The state shape stays `(batch, seq, d)`.
@@ -24,7 +24,7 @@ Paper tag: repo config variant, related to pre/post-norm transformer design.
 Config: [`residual_sandwich.yaml`](../configs/connection/residual_sandwich.yaml)
 
 $$
-h_{\ell+1} = h_\ell + \operatorname{Dropout}(\operatorname{Norm}_2(F(\operatorname{Norm}_1(h_\ell))))
+h_{\ell+1} = h_\ell + \mathrm{Dropout}(\mathrm{Norm}_2(F(\mathrm{Norm}_1(h_\ell))))
 $$
 
 This config uses the same `residual` implementation with `post_norm: true`. It normalizes before and after the sublayer.
@@ -53,7 +53,7 @@ $$
 Then one branch is passed through the sublayer and written back through depth coefficients:
 
 $$
-H_{\ell+1} = \operatorname{depth\_mix}(\tilde H, \beta(H)F(\tilde H_0))
+H_{\ell+1} = \mathrm{depth\_mix}(\tilde H, \beta(H)F(\tilde H_0))
 $$
 
 The local implementation has static alpha/beta parameters and optional dynamic alpha/beta predicted from normalized hidden states.
@@ -70,7 +70,7 @@ Config: [`mhc.yaml`](../configs/connection/mhc.yaml)
 mHC keeps the multi-stream residual state from hyper-connections but constrains the stream-mixing matrix with Sinkhorn-Knopp normalization:
 
 $$
-\alpha_{\text{mc}} = \operatorname{Sinkhorn}(\exp(\alpha))
+\alpha_{\text{mc}} = \mathrm{Sinkhorn}(\exp(\alpha))
 $$
 
 This pushes the connection matrix toward a doubly-stochastic manifold, restoring a more identity-like skip path while keeping learned stream mixing.

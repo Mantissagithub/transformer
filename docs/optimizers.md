@@ -28,7 +28,7 @@ Implementation: [`lion.py`](../src/components/optimizers/lion.py)
 Config: [`lion.yaml`](../configs/optimizer/lion.yaml)
 
 $$
-u_t = \operatorname{sign}(\beta_1 m_{t-1} + (1-\beta_1)g_t),\quad
+u_t = \mathrm{sign}(\beta_1 m_{t-1} + (1-\beta_1)g_t),\quad
 \theta_t = (1-\eta\lambda)\theta_{t-1} - \eta u_t
 $$
 
@@ -48,7 +48,7 @@ Config: [`adafactor.yaml`](../configs/optimizer/adafactor.yaml)
 Adafactor factorizes second-moment estimates for matrix-shaped parameters:
 
 $$
-V \approx \frac{r c^\top}{\operatorname{mean}(r)}
+V \approx \frac{r c^\top}{\mathrm{mean}(r)}
 $$
 
 The local builder uses `torch.optim.Adafactor` when available. It is useful when optimizer-state memory matters.
