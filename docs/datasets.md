@@ -32,9 +32,9 @@ Implementation: [`fineweb_edu.py`](../src/components/datasets/fineweb_edu.py)
 
 The causal dataset path streams text, trains or loads a byte-level BPE tokenizer, appends `[EOS]`, and packs text into fixed `(seq_len + 1)` chunks:
 
-\[
+$$
 x = tokens_{0:n-1},\quad y = tokens_{1:n}
-\]
+$$
 
 ### `fineweb_edu`
 

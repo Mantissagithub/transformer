@@ -16,13 +16,13 @@ Paper tag: common transformer warmup/decay recipe.
 
 Config: [`linear_warmup.yaml`](../configs/scheduler/linear_warmup.yaml)
 
-\[
+$$
 \lambda(t)=
 \begin{cases}
 t / T_w & t < T_w \\
 \max(r_{\min}, 1 - \frac{t-T_w}{T-T_w}) & t \ge T_w
 \end{cases}
-\]
+$$
 
 The LR warms up linearly, then decays linearly to `min_lr_ratio`.
 
@@ -32,10 +32,10 @@ Paper tag: cosine annealing from [SGDR](https://arxiv.org/abs/1608.03983), used 
 
 Config: [`cosine_warmup.yaml`](../configs/scheduler/cosine_warmup.yaml)
 
-\[
+$$
 \lambda(t)=r_{\min}+(1-r_{\min})\frac{1+\cos(\pi p)}{2},\quad
 p=\frac{t-T_w}{T-T_w}
-\]
+$$
 
 This is a smooth alternative to linear decay. It is the default-style schedule for longer pretraining runs in this repo.
 
@@ -45,13 +45,13 @@ Paper tag: [Attention Is All You Need](https://arxiv.org/abs/1706.03762)
 
 Config: [`inverse_sqrt_warmup.yaml`](../configs/scheduler/inverse_sqrt_warmup.yaml)
 
-\[
+$$
 \lambda(t)=
 \begin{cases}
 t/T_w & t<T_w \\
 \sqrt{T_w/t} & t\ge T_w
 \end{cases}
-\]
+$$
 
 This mirrors the original transformer decay shape after warmup, without including the `d_model^{-0.5}` factor because the base LR already carries scale.
 
@@ -61,9 +61,9 @@ Paper tag: polynomial decay is a standard large-scale training schedule family; 
 
 Config: [`polynomial_warmup.yaml`](../configs/scheduler/polynomial_warmup.yaml)
 
-\[
+$$
 \lambda(t)=r_{\min}+(1-r_{\min})(1-p)^\alpha
-\]
+$$
 
 `power: 1.0` gives linear decay. Larger powers hold LR higher early and decay harder near the end; smaller powers decay earlier.
 
@@ -73,13 +73,13 @@ Paper tag: [Understanding Warmup-Stable-Decay Learning Rates](https://arxiv.org/
 
 Config: [`wsd.yaml`](../configs/scheduler/wsd.yaml)
 
-\[
+$$
 \lambda(t)=
 \begin{cases}
 t/T_w & t<T_w \\
 1 & T_w \le t < T_d \\
 r_{\min}+(1-r_{\min})D((t-T_d)/(T-T_d)) & t\ge T_d
 \end{cases}
-\]
+$$
 
 `D` is cosine or linear decay. WSD is useful when the main training run should stay at peak LR for most of the budget, then decay only near the end.

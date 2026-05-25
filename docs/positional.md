@@ -9,10 +9,10 @@ Paper tag: [Attention Is All You Need](https://arxiv.org/abs/1706.03762)
 Implementation: [`sinusoidal.py`](../src/components/positional/sinusoidal.py)
 Config: [`sinusoidal.yaml`](../configs/positional/sinusoidal.yaml)
 
-\[
+$$
 \operatorname{PE}_{p,2i}=\sin\left(p / 10000^{2i/d}\right),\quad
 \operatorname{PE}_{p,2i+1}=\cos\left(p / 10000^{2i/d}\right)
-\]
+$$
 
 The encoding is added to token embeddings before the transformer stack. It is deterministic and has no learned position table.
 
@@ -25,11 +25,11 @@ Paper tag: [RoFormer: Enhanced Transformer with Rotary Position Embedding](https
 Implementation: [`rope.py`](../src/components/positional/rope.py)
 Config: [`rope.yaml`](../configs/positional/rope.yaml)
 
-\[
+$$
 \operatorname{RoPE}(q_p) = R_p q_p,\quad
 \operatorname{RoPE}(k_t)=R_t k_t,\quad
 q_p^\top k_t \rightarrow q_p^\top R_{t-p} k_t
-\]
+$$
 
 RoPE rotates query and key channels by position-dependent angles, turning absolute position rotations into relative offsets inside the attention dot product. In this repo the module stores cosine/sine tables; RoPE-aware attention modules apply the rotation inside attention.
 
@@ -42,9 +42,9 @@ Paper tag: [Train Short, Test Long: Attention with Linear Biases Enables Input L
 Implementation: [`alibi.py`](../src/components/positional/alibi.py)
 Config: [`alibi.yaml`](../configs/positional/alibi.yaml)
 
-\[
+$$
 \operatorname{score}_{h,i,j} = \frac{q_{h,i}^\top k_{h,j}}{\sqrt{d_h}} + m_h(i-j)
-\]
+$$
 
 ALiBi does not add a position vector to embeddings. It adds a head-specific linear distance bias to attention scores, usually favoring recent context.
 
