@@ -1,8 +1,8 @@
 # Attention variants
 
-This page keeps the attention family in one place. Each variant has its own architecture card, paper tag, local implementation/config links, and a short note on when to use it.
+This page keeps the attention family in one place. Each variant has its own architecture diagram, paper tag, local implementation/config links, and a short note on when to use it.
 
-The diagrams use the same grammar throughout: blue blocks are query streams, green blocks are key streams, orange blocks are value streams, the matrix panel shows the visible attention pattern, and the memory panel shows the KV-cache shape relative to full MHA.
+The diagrams use a black-canvas explainer style: token tensors, projection boxes, per-head lanes, attention heatmaps, and a bottom formula strip. They are exported as SVG assets generated from HTML-style layouts.
 
 ## `mha`
 
