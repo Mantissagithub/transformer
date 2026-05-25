@@ -17,11 +17,11 @@ Paper tag: common transformer warmup/decay recipe.
 Config: [`linear_warmup.yaml`](../configs/scheduler/linear_warmup.yaml)
 
 $$
-\lambda(t)=
-\begin{cases}
-t / T_w & t < T_w \\
-\max(r_{\min}, 1 - \frac{t-T_w}{T-T_w}) & t \ge T_w
-\end{cases}
+\lambda(t)=t/T_w \quad \text{for } t<T_w
+$$
+
+$$
+\lambda(t)=\max\left(r_{\min}, 1-\frac{t-T_w}{T-T_w}\right) \quad \text{for } t\ge T_w
 $$
 
 The LR warms up linearly, then decays linearly to `min_lr_ratio`.
@@ -46,11 +46,11 @@ Paper tag: [Attention Is All You Need](https://arxiv.org/abs/1706.03762)
 Config: [`inverse_sqrt_warmup.yaml`](../configs/scheduler/inverse_sqrt_warmup.yaml)
 
 $$
-\lambda(t)=
-\begin{cases}
-t/T_w & t<T_w \\
-\sqrt{T_w/t} & t\ge T_w
-\end{cases}
+\lambda(t)=t/T_w \quad \text{for } t<T_w
+$$
+
+$$
+\lambda(t)=\sqrt{T_w/t} \quad \text{for } t\ge T_w
 $$
 
 This mirrors the original transformer decay shape after warmup, without including the `d_model^{-0.5}` factor because the base LR already carries scale.
@@ -74,12 +74,15 @@ Paper tag: [Understanding Warmup-Stable-Decay Learning Rates](https://arxiv.org/
 Config: [`wsd.yaml`](../configs/scheduler/wsd.yaml)
 
 $$
-\lambda(t)=
-\begin{cases}
-t/T_w & t<T_w \\
-1 & T_w \le t < T_d \\
-r_{\min}+(1-r_{\min})D((t-T_d)/(T-T_d)) & t\ge T_d
-\end{cases}
+\lambda(t)=t/T_w \quad \text{for } t<T_w
+$$
+
+$$
+\lambda(t)=1 \quad \text{for } T_w \le t < T_d
+$$
+
+$$
+\lambda(t)=r_{\min}+(1-r_{\min})D\left(\frac{t-T_d}{T-T_d}\right) \quad \text{for } t\ge T_d
 $$
 
 `D` is cosine or linear decay. WSD is useful when the main training run should stay at peak LR for most of the budget, then decay only near the end.
