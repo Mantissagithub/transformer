@@ -155,6 +155,11 @@ def main() -> None:
     args = _parse_args()
     output_root = Path(args.output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
+
+    if args.render_only:
+        _render_only(output_root, args)
+        return
+
     output_dir = _run_output_dir(output_root)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -185,6 +190,29 @@ def main() -> None:
     print(f"wrote benchmark results to {output_dir}")
 
 
+def _render_only(output_root: Path, args: argparse.Namespace) -> None:
+    """rebuild summary.csv + charts + README from the existing results.jsonl,
+    without downloading or evaluating any model checkpoints."""
+    results = _load_results(output_root / "results.jsonl")
+    if not results:
+        raise RuntimeError(f"no results.jsonl in {output_root}; run a benchmark first")
+    settings_path = output_root / "settings.json"
+    settings: dict[str, Any] = {}
+    if settings_path.exists():
+        try:
+            settings = json.loads(settings_path.read_text())
+        except json.JSONDecodeError:
+            settings = {}
+    settings.setdefault("collection_slug", args.collection_slug)
+    settings.setdefault("dataset", args.dataset)
+    settings.setdefault("split", args.split)
+    settings.setdefault("generation_samples", args.generation_samples)
+    settings.setdefault("precision", args.precision)
+    _write_summary_csv(output_root / "summary.csv", results)
+    _write_readme(output_root / "README.md", results, settings)
+    print(f"re-rendered report in {output_root}")
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Benchmark custom transformer-lab checkpoints from a Hugging Face collection."
@@ -209,6 +237,11 @@ def _parse_args() -> argparse.Namespace:
         help="auto attempts BERTScore when installed; off records null; on raises metric warnings on failure.",
     )
     parser.add_argument("--max-new-tokens", type=int, default=0, help="0 uses model/data max_tgt_len.")
+    parser.add_argument(
+        "--render-only",
+        action="store_true",
+        help="Skip evaluation; rebuild charts + README from the existing results.jsonl.",
+    )
     return parser.parse_args()
 
 
@@ -737,21 +770,323 @@ def _write_summary_csv(path: Path, results: list[BenchmarkResult]) -> None:
             writer.writerow({field: _csv_value(row.get(field)) for field in RESULT_FIELDS})
 
 
-def _write_readme(path: Path, results: list[BenchmarkResult], settings: dict[str, Any]) -> None:
-    rows = [
-        "# Transformer Lab Benchmark",
-        "",
-        f"- Collection: `{settings['collection_slug']}`",
-        f"- Dataset: `{settings['dataset']}` / `{settings['split']}`",
-        f"- Generation samples: `{settings['generation_samples']}`",
-        f"- Precision: `{settings['precision']}`",
-        "- Archived runs: `runs/<timestamp>/` under this folder.",
-        "",
+# ---------------------------------------------------------------------------
+# academic report rendering: per-variant colours, loss curves, metric charts
+# ---------------------------------------------------------------------------
+
+# fixed colourblind-friendly palette so a variant keeps the same colour in every
+# figure (loss overlay, bar charts, scatter).
+VARIANT_COLORS: dict[str, str] = {
+    "mha":            "#4C72B0",
+    "mqa":            "#DD8452",
+    "gqa":            "#55A868",
+    "gqa_rope":       "#C44E52",
+    "sliding_window": "#8172B3",
+    "sliding_gqa":    "#937860",
+    "gemma3_hybrid":  "#DA8BC3",
+    "mla":            "#8C8C8C",
+    "csa":            "#CCB974",
+    "hca":            "#64B5CD",
+    "msa":            "#E63946",
+}
+_FALLBACK_COLOR = "#444444"
+
+# canonical collection URL + inline HF logo used in the report's Models section.
+COLLECTION_URL = "https://huggingface.co/collections/Pradheep1647/transformer-lab"
+HF_LOGO = (
+    '<img src="https://huggingface.co/front/assets/huggingface_logo-noborder.svg" '
+    'width="16" alt="🤗"/>'
+)
+
+
+def _variant_key(repo_id: str) -> str:
+    """short variant name, e.g. 'msa' from 'owner/run_msa-meetingbank-...'."""
+    name = repo_id.split("/", 1)[-1]
+    if name.startswith("run_"):
+        name = name[len("run_"):]
+    if "-meetingbank-" in name:
+        name = name.split("-meetingbank-", 1)[0]
+    return name
+
+
+def _variant_color(repo_id: str) -> str:
+    return VARIANT_COLORS.get(_variant_key(repo_id), _FALLBACK_COLOR)
+
+
+def _num(value: Any) -> float | None:
+    """coerce a metric to a finite float, else None (handles None / 'inf')."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) else None
+
+
+def _download_loss_curve(repo_id: str, token: str | None):
+    """fetch loss_curve.csv from the model repo -> (steps, losses) or None."""
+    try:
+        local = hf_hub_download(
+            repo_id=repo_id, filename="loss_curve.csv", repo_type="model", token=token
+        )
+        # dedupe by step (last write wins, like tensorboard) so concatenated or
+        # out-of-order runs collapse into one clean monotonic curve.
+        by_step: dict[int, float] = {}
+        with open(local, newline="") as f:
+            for row in csv.DictReader(f):
+                loss = _num(row.get("loss"))
+                if loss is not None:
+                    by_step[int(float(row["step"]))] = loss
+        if not by_step:
+            return None
+        steps = sorted(by_step)
+        return steps, [by_step[s] for s in steps]
+    except Exception:
+        return None
+
+
+def _model_kind(repo_id: str, token: str | None) -> str:
+    """'causal_lm' (decoder-only) or 'encoder_decoder' (transformer), from the
+    repo's config.json; best-effort, defaults to encoder_decoder."""
+    try:
+        local = hf_hub_download(
+            repo_id=repo_id, filename="config.json", repo_type="model", token=token
+        )
+        cfg = json.loads(Path(local).read_text())
+        return str(cfg.get("model", {}).get("kind", "encoder_decoder"))
+    except Exception:
+        return "encoder_decoder"
+
+
+def _ema(values: list[float], alpha: float = 0.04) -> list[float]:
+    out: list[float] = []
+    acc = values[0]
+    for v in values:
+        acc = alpha * v + (1 - alpha) * acc
+        out.append(acc)
+    return out
+
+
+def _downsample(xs: list, ys: list, max_points: int = 800):
+    if len(xs) <= max_points:
+        return xs, ys
+    stride = len(xs) // max_points
+    return xs[::stride], ys[::stride]
+
+
+def _setup_mpl():
+    """academic figure style; returns pyplot or None if matplotlib is missing."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception:
+        return None
+    plt.rcParams.update({
+        "figure.dpi": 160,
+        "savefig.dpi": 160,
+        "figure.facecolor": "white",
+        "axes.facecolor": "white",
+        "font.family": "DejaVu Sans",
+        "font.size": 11,
+        "axes.titlesize": 13,
+        "axes.titleweight": "bold",
+        "axes.labelsize": 11,
+        "axes.edgecolor": "#444444",
+        "axes.linewidth": 0.8,
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "axes.grid": True,
+        "axes.axisbelow": True,
+        "grid.color": "#e8e8e8",
+        "grid.linewidth": 0.8,
+        "legend.frameon": False,
+        "legend.fontsize": 9,
+        "xtick.labelsize": 9,
+        "ytick.labelsize": 9,
+    })
+    return plt
+
+
+def _panel_hbar(ax, data, xlabel, lower_better) -> None:
+    """one horizontal-bar panel; best value at the top, value labels at bar ends."""
+    data = [(n, v, c) for n, v, c in data if v is not None]
+    data.sort(key=lambda t: t[1], reverse=not lower_better)
+    names = [d[0] for d in data]
+    vals = [d[1] for d in data]
+    cols = [d[2] for d in data]
+    y = list(range(len(names)))
+    ax.barh(y, vals, color=cols, edgecolor="white", height=0.72)
+    ax.set_yticks(y)
+    ax.set_yticklabels(names)
+    ax.invert_yaxis()
+    ax.set_xlabel(xlabel)
+    ax.grid(axis="x")
+    ax.grid(axis="y", visible=False)
+    ax.spines["left"].set_visible(False)
+    vmax = max(vals) if vals else 1.0
+    for yy, v in zip(y, vals):
+        ax.text(v + vmax * 0.012, yy, f"{v:.3g}", va="center", ha="left", fontsize=8.5)
+    ax.margins(x=0.16)
+
+
+def _render_charts(
+    assets_dir: Path,
+    results: list[BenchmarkResult],
+    token: str | None,
+    kinds: dict[str, str],
+) -> dict[str, str]:
+    """render the report figures into assets_dir; returns {chart: relpath}.
+    empty dict means rendering is unavailable -> caller falls back to a table."""
+    plt = _setup_mpl()
+    if plt is None:
+        return {}
+    ok = [r for r in results if r.status == "ok"]
+    if not ok:
+        return {}
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    charts: dict[str, str] = {}
+
+    def k(r): return _variant_key(r.repo_id)
+    def c(r): return _variant_color(r.repo_id)
+    # decoder-only (causal-LM) drawn solid; encoder-decoder transformers dashed.
+    def style(r): return "-" if kinds.get(r.repo_id) == "causal_lm" else "--"
+
+    # 1) training-loss overlay (pulled from each repo's loss_curve.csv)
+    try:
+        from matplotlib.lines import Line2D
+        curves = []
+        for r in ok:
+            lc = _download_loss_curve(r.repo_id, token)
+            if lc is None:
+                continue
+            steps, losses = _downsample(lc[0], lc[1])
+            curves.append((k(r), c(r), steps, _ema(losses), style(r)))
+        if curves:
+            fig, ax = plt.subplots(figsize=(9.2, 5.2))
+            for name, col, steps, losses, ls in sorted(curves, key=lambda t: t[0]):
+                ax.plot(steps, losses, color=col, lw=1.7, ls=ls, label=name)
+            ax.set_xlabel("training step")
+            ax.set_ylabel("loss (EMA-smoothed)")
+            ax.set_title("Training loss")
+            variant_legend = ax.legend(ncol=2, loc="upper right")
+            ax.add_artist(variant_legend)
+            ax.legend(
+                handles=[
+                    Line2D([0], [0], color="#444444", ls="-", label="decoder-only (causal-LM)"),
+                    Line2D([0], [0], color="#444444", ls="--", label="encoder–decoder (transformer)"),
+                ],
+                loc="lower left",
+                fontsize=8.5,
+                title="model type",
+            )
+            fig.savefig(assets_dir / "loss_curves.png", bbox_inches="tight")
+            plt.close(fig)
+            charts["loss_curves"] = "assets/loss_curves.png"
+    except Exception:
+        pass
+
+    # 2) evaluation quality: perplexity (lower better) + token accuracy (higher)
+    try:
+        fig, axes = plt.subplots(1, 2, figsize=(12, 0.55 * len(ok) + 1.8))
+        _panel_hbar(axes[0], [(k(r), _num(r.perplexity), c(r)) for r in ok],
+                    "perplexity  (lower is better)", lower_better=True)
+        axes[0].set_title("Eval perplexity")
+        _panel_hbar(axes[1], [(k(r), _num(r.token_accuracy), c(r)) for r in ok],
+                    "token accuracy  (higher is better)", lower_better=False)
+        axes[1].set_title("Token accuracy")
+        fig.savefig(assets_dir / "eval_quality.png", bbox_inches="tight")
+        plt.close(fig)
+        charts["eval_quality"] = "assets/eval_quality.png"
+    except Exception:
+        pass
+
+    # 3) generation quality: ROUGE-L + BLEU
+    try:
+        fig, axes = plt.subplots(1, 2, figsize=(12, 0.55 * len(ok) + 1.8))
+        _panel_hbar(axes[0], [(k(r), _num(r.rougeL), c(r)) for r in ok],
+                    "ROUGE-L  (higher is better)", lower_better=False)
+        axes[0].set_title("ROUGE-L")
+        _panel_hbar(axes[1], [(k(r), _num(r.bleu), c(r)) for r in ok],
+                    "BLEU  (higher is better)", lower_better=False)
+        axes[1].set_title("BLEU")
+        fig.savefig(assets_dir / "generation_quality.png", bbox_inches="tight")
+        plt.close(fig)
+        charts["generation_quality"] = "assets/generation_quality.png"
+    except Exception:
+        pass
+
+    # 4) throughput: eval tok/s vs generation tok/s (grouped bars)
+    try:
+        import numpy as np
+        names = [k(r) for r in ok]
+        ev = [_num(r.eval_tokens_per_sec) or 0.0 for r in ok]
+        gen = [_num(r.generation_tokens_per_sec) or 0.0 for r in ok]
+        x = np.arange(len(names))
+        w = 0.4
+        fig, ax = plt.subplots(figsize=(max(8.0, 1.15 * len(names)), 5))
+        ax.bar(x - w / 2, ev, w, label="eval tok/s", color="#4C72B0", edgecolor="white")
+        ax.bar(x + w / 2, gen, w, label="generation tok/s", color="#DD8452", edgecolor="white")
+        ax.set_xticks(x)
+        ax.set_xticklabels(names, rotation=30, ha="right")
+        ax.set_ylabel("tokens / second")
+        ax.set_title("Throughput")
+        ax.grid(axis="x", visible=False)
+        ax.legend()
+        fig.savefig(assets_dir / "throughput.png", bbox_inches="tight")
+        plt.close(fig)
+        charts["throughput"] = "assets/throughput.png"
+    except Exception:
+        pass
+
+    # 5) quality vs efficiency scatter (ROUGE-L vs generation speed)
+    try:
+        pts = [(k(r), _num(r.generation_tokens_per_sec), _num(r.rougeL), c(r)) for r in ok]
+        pts = [p for p in pts if p[1] is not None and p[2] is not None]
+        if pts:
+            fig, ax = plt.subplots(figsize=(8, 6))
+            for name, xv, yv, col in pts:
+                ax.scatter(xv, yv, s=110, color=col, edgecolor="white", linewidth=1.2, zorder=3)
+                ax.annotate(name, (xv, yv), textcoords="offset points",
+                            xytext=(7, 4), fontsize=9)
+            ax.set_xlabel("generation speed (tok/s)  →")
+            ax.set_ylabel("ROUGE-L  →")
+            ax.set_title("Quality vs. efficiency")
+            fig.savefig(assets_dir / "tradeoff.png", bbox_inches="tight")
+            plt.close(fig)
+            charts["tradeoff"] = "assets/tradeoff.png"
+    except Exception:
+        pass
+
+    return charts
+
+
+def _highlights(ok: list[BenchmarkResult]) -> list[str]:
+    def best(metric: str, lower: bool):
+        cand = [(_num(getattr(r, metric)), _variant_key(r.repo_id)) for r in ok]
+        cand = [c for c in cand if c[0] is not None]
+        if not cand:
+            return None
+        return (min if lower else max)(cand)
+    out = []
+    ppl = best("perplexity", True)
+    if ppl:
+        out.append(f"Lowest perplexity — **{ppl[1]}** ({ppl[0]:.3g}).")
+    rl = best("rougeL", False)
+    if rl:
+        out.append(f"Best generation overlap (ROUGE-L) — **{rl[1]}** ({rl[0]:.3g}).")
+    gs = best("generation_tokens_per_sec", False)
+    if gs:
+        out.append(f"Fastest generation — **{gs[1]}** ({gs[0]:.0f} tok/s).")
+    return out
+
+
+def _metrics_table_lines(results: list[BenchmarkResult]) -> list[str]:
+    lines = [
         "| Attention Variant | Repo | Status | Loss | PPL | Tok Acc | ROUGE-L | BLEU | Tok/s | Gen tok/s |",
         "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for result in sorted(results, key=lambda r: (r.status != "ok", _sort_value(r.perplexity))):
-        rows.append(
+        lines.append(
             "| "
             + " | ".join(
                 [
@@ -769,19 +1104,131 @@ def _write_readme(path: Path, results: list[BenchmarkResult], settings: dict[str
             )
             + " |"
         )
+    return lines
+
+
+def _warning_lines(results: list[BenchmarkResult]) -> list[str]:
     warnings = sorted(set(warning for result in results for warning in result.warnings))
-    if warnings:
-        rows.extend(["", "## Warnings", ""])
-        if any("unavailable" in warning for warning in warnings):
-            rows.extend(
-                [
-                    "Some optional generation metrics were skipped because their packages are not installed.",
-                    "Install them with `uv sync --extra benchmark`, then rerun the benchmark to populate the blank metric columns.",
-                    "",
-                ]
-            )
-        rows.extend(f"- {warning}" for warning in warnings)
+    if not warnings:
+        return []
+    lines = ["## Warnings", ""]
+    if any("unavailable" in warning for warning in warnings):
+        lines.extend([
+            "Some optional generation metrics were skipped because their packages are not installed.",
+            "Install them with `uv sync --extra benchmark`, then rerun the benchmark to populate the blank metric columns.",
+            "",
+        ])
+    lines.extend(f"- {warning}" for warning in warnings)
+    return lines
+
+
+def _write_readme_table(path: Path, results: list[BenchmarkResult], settings: dict[str, Any]) -> None:
+    """plain table README — fallback when chart rendering is unavailable."""
+    rows = [
+        "# Transformer Lab Benchmark",
+        "",
+        f"- Collection: `{settings.get('collection_slug', '')}`",
+        f"- Dataset: `{settings.get('dataset', 'meetingbank')}` / `{settings.get('split', 'validation')}`",
+        f"- Generation samples: `{settings.get('generation_samples', '')}`",
+        f"- Precision: `{settings.get('precision', 'fp32')}`",
+        "- Archived runs: `runs/<timestamp>/` under this folder.",
+        "",
+    ]
+    rows.extend(_metrics_table_lines(results))
+    warn = _warning_lines(results)
+    if warn:
+        rows.append("")
+        rows.extend(warn)
     path.write_text("\n".join(rows) + "\n")
+
+
+def _write_readme(path: Path, results: list[BenchmarkResult], settings: dict[str, Any]) -> None:
+    assets_dir = path.parent / "assets"
+    token = _hf_token(Path.cwd(), required=False)
+    kinds = {r.repo_id: _model_kind(r.repo_id, token) for r in results}
+    try:
+        charts = _render_charts(assets_dir, results, token, kinds)
+    except Exception:
+        charts = {}
+
+    if not charts:
+        _write_readme_table(path, results, settings)
+        return
+
+    ok = [r for r in results if r.status == "ok"]
+    dec_only = sorted({_variant_key(r.repo_id) for r in ok if kinds.get(r.repo_id) == "causal_lm"})
+    enc_dec = sorted({_variant_key(r.repo_id) for r in ok if kinds.get(r.repo_id) != "causal_lm"})
+    lines = [
+        "# Transformer Lab — Attention Benchmark",
+        "",
+        "Attention variants trained on MeetingBank and evaluated head-to-head. The set spans both "
+        "**encoder–decoder transformers** and **decoder-only (causal-LM)** models, each benchmarked "
+        "through the topology it was trained in.",
+        "",
+        f"**Setup** — dataset `{settings.get('dataset', 'meetingbank')}` / "
+        f"`{settings.get('split', 'validation')}` · generation samples "
+        f"`{settings.get('generation_samples', '?')}` · precision "
+        f"`{settings.get('precision', 'fp32')}` · "
+        f"[model collection]({COLLECTION_URL}).",
+        "",
+    ]
+    highlights = _highlights(ok)
+    if highlights:
+        lines.append("**Highlights**")
+        lines.append("")
+        lines.extend(f"- {h}" for h in highlights)
+        lines.append("")
+
+    def section(title: str, chart: str, takeaway: str) -> None:
+        if chart not in charts:
+            return
+        lines.extend([f"## {title}", "", f"![{title}]({charts[chart]})", "", takeaway, ""])
+
+    loss_takeaway = (
+        "Training loss vs. step for every variant, pulled from each model's `loss_curve.csv` on the "
+        "Hub and exponentially smoothed. **Solid** lines are decoder-only / causal-LM models"
+        + (f" ({', '.join(dec_only)})" if dec_only else "")
+        + "; **dashed** lines are encoder–decoder transformers"
+        + (f" ({', '.join(enc_dec)})" if enc_dec else "")
+        + ". The two groups optimise different objectives, so absolute loss is not directly "
+        "comparable across them."
+    )
+    section("Training loss", "loss_curves", loss_takeaway)
+    section("Evaluation quality", "eval_quality",
+            "Teacher-forced perplexity (lower is better) and next-token accuracy on the held-out "
+            "validation split.")
+    section("Generation quality", "generation_quality",
+            "Summary-generation overlap against reference summaries (ROUGE-L and BLEU).")
+    section("Throughput", "throughput",
+            "Evaluation and autoregressive-generation speed, in tokens per second.")
+    section("Quality vs. efficiency", "tradeoff",
+            "Generation quality against generation speed — the upper-right corner is favourable.")
+
+    lines.extend([
+        "## Models",
+        "",
+        f"All checkpoints are published in the {HF_LOGO} "
+        f"[transformer-lab collection]({COLLECTION_URL}).",
+        "",
+    ])
+    for result in sorted(results, key=lambda r: (r.status != "ok", _sort_value(r.perplexity))):
+        kind_label = "decoder-only" if kinds.get(result.repo_id) == "causal_lm" else "encoder–decoder"
+        lines.append(
+            f"- {HF_LOGO} **{_variant_key(result.repo_id)}** "
+            f"[`{result.repo_id}`](https://huggingface.co/{result.repo_id}) "
+            f"— {kind_label} · {result.status}"
+        )
+    lines.append("")
+
+    lines.extend(["<details>", "<summary>Raw metrics</summary>", ""])
+    lines.extend(_metrics_table_lines(results))
+    warn = _warning_lines(results)
+    if warn:
+        lines.append("")
+        lines.extend(warn)
+    lines.extend(["", "</details>", ""])
+
+    path.write_text("\n".join(lines) + "\n")
 
 
 def _attention_variant_label(repo_id: str) -> str:

@@ -1,10 +1,60 @@
-# Transformer Lab Benchmark
+# Transformer Lab — Attention Benchmark
 
-- Collection: `Pradheep1647/transformer-lab-6a07fe3185f5728e217997e0`
-- Dataset: `meetingbank` / `validation`
-- Generation samples: `128`
-- Precision: `fp32`
-- Archived runs: `runs/<timestamp>/` under this folder.
+Attention variants trained on MeetingBank and evaluated head-to-head. The set spans both **encoder–decoder transformers** and **decoder-only (causal-LM)** models, each benchmarked through the topology it was trained in.
+
+**Setup** — dataset `meetingbank` / `validation` · generation samples `128` · precision `fp32` · [model collection](https://huggingface.co/collections/Pradheep1647/transformer-lab).
+
+**Highlights**
+
+- Lowest perplexity — **msa** (11.8).
+- Best generation overlap (ROUGE-L) — **sliding_gqa** (0.415).
+- Fastest generation — **gqa_rope** (346 tok/s).
+
+## Training loss
+
+![Training loss](assets/loss_curves.png)
+
+Training loss vs. step for every variant, pulled from each model's `loss_curve.csv` on the Hub and exponentially smoothed. **Solid** lines are decoder-only / causal-LM models (csa, hca, msa); **dashed** lines are encoder–decoder transformers (gqa, gqa_rope, mha, mqa, sliding_gqa). The two groups optimise different objectives, so absolute loss is not directly comparable across them.
+
+## Evaluation quality
+
+![Evaluation quality](assets/eval_quality.png)
+
+Teacher-forced perplexity (lower is better) and next-token accuracy on the held-out validation split.
+
+## Generation quality
+
+![Generation quality](assets/generation_quality.png)
+
+Summary-generation overlap against reference summaries (ROUGE-L and BLEU).
+
+## Throughput
+
+![Throughput](assets/throughput.png)
+
+Evaluation and autoregressive-generation speed, in tokens per second.
+
+## Quality vs. efficiency
+
+![Quality vs. efficiency](assets/tradeoff.png)
+
+Generation quality against generation speed — the upper-right corner is favourable.
+
+## Models
+
+All checkpoints are published in the <img src="https://huggingface.co/front/assets/huggingface_logo-noborder.svg" width="16" alt="🤗"/> [transformer-lab collection](https://huggingface.co/collections/Pradheep1647/transformer-lab).
+
+- <img src="https://huggingface.co/front/assets/huggingface_logo-noborder.svg" width="16" alt="🤗"/> **msa** [`Pradheep1647/run_msa-meetingbank-bs8-e20-fp32-19`](https://huggingface.co/Pradheep1647/run_msa-meetingbank-bs8-e20-fp32-19) — decoder-only · ok
+- <img src="https://huggingface.co/front/assets/huggingface_logo-noborder.svg" width="16" alt="🤗"/> **mha** [`Pradheep1647/run_mha-meetingbank-bs8-e20-fp32-19`](https://huggingface.co/Pradheep1647/run_mha-meetingbank-bs8-e20-fp32-19) — encoder–decoder · ok
+- <img src="https://huggingface.co/front/assets/huggingface_logo-noborder.svg" width="16" alt="🤗"/> **gqa_rope** [`Pradheep1647/run_gqa_rope-meetingbank-bs8-e20-fp32-19`](https://huggingface.co/Pradheep1647/run_gqa_rope-meetingbank-bs8-e20-fp32-19) — encoder–decoder · ok
+- <img src="https://huggingface.co/front/assets/huggingface_logo-noborder.svg" width="16" alt="🤗"/> **mqa** [`Pradheep1647/run_mqa-meetingbank-bs8-e20-fp32-19`](https://huggingface.co/Pradheep1647/run_mqa-meetingbank-bs8-e20-fp32-19) — encoder–decoder · ok
+- <img src="https://huggingface.co/front/assets/huggingface_logo-noborder.svg" width="16" alt="🤗"/> **gqa** [`Pradheep1647/run_gqa-meetingbank-bs8-e20-fp32-19`](https://huggingface.co/Pradheep1647/run_gqa-meetingbank-bs8-e20-fp32-19) — encoder–decoder · ok
+- <img src="https://huggingface.co/front/assets/huggingface_logo-noborder.svg" width="16" alt="🤗"/> **sliding_gqa** [`Pradheep1647/run_sliding_gqa-meetingbank-bs8-e20-fp32-19`](https://huggingface.co/Pradheep1647/run_sliding_gqa-meetingbank-bs8-e20-fp32-19) — encoder–decoder · ok
+- <img src="https://huggingface.co/front/assets/huggingface_logo-noborder.svg" width="16" alt="🤗"/> **csa** [`Pradheep1647/run_csa-meetingbank-bs8-e20-fp32-19`](https://huggingface.co/Pradheep1647/run_csa-meetingbank-bs8-e20-fp32-19) — decoder-only · ok
+- <img src="https://huggingface.co/front/assets/huggingface_logo-noborder.svg" width="16" alt="🤗"/> **hca** [`Pradheep1647/run_hca-meetingbank-bs8-e20-fp32-19`](https://huggingface.co/Pradheep1647/run_hca-meetingbank-bs8-e20-fp32-19) — decoder-only · ok
+
+<details>
+<summary>Raw metrics</summary>
 
 | Attention Variant | Repo | Status | Loss | PPL | Tok Acc | ROUGE-L | BLEU | Tok/s | Gen tok/s |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -26,3 +76,6 @@ Install them with `uv sync --extra benchmark`, then rerun the benchmark to popul
 - bleu unavailable: ModuleNotFoundError: No module named 'sacrebleu'
 - replaced published tokenizer.json with local causal tokenizer fallback for Pradheep1647/run_csa-meetingbank-bs8-e20-fp32-19
 - replaced published tokenizer.json with local causal tokenizer fallback for Pradheep1647/run_hca-meetingbank-bs8-e20-fp32-19
+
+</details>
+
