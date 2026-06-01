@@ -2,11 +2,11 @@
 
 This page keeps the attention family in one place. Each variant has its own architecture diagram, paper tag, local implementation/config links, and a short note on when to use it.
 
-The diagrams use a black-canvas explainer style: token tensors, projection boxes, per-head lanes, attention heatmaps, and a bottom formula strip. They are exported as SVG assets generated from HTML-style layouts.
+The diagrams use a black-canvas explainer style: token tensors, projection boxes, per-head lanes, attention heatmaps, and a bottom formula strip. They are exported as PNG assets generated from HTML-style layouts.
 
 ## `mha`
 
-![MHA architecture](assets/mha.svg)
+![MHA architecture](assets/mha.png)
 
 Multi-head attention is the baseline from [Attention Is All You Need](https://arxiv.org/abs/1706.03762). It projects the input into separate query, key, and value tensors, computes dense token-to-token attention, and applies the attention pattern to the values.
 
@@ -16,7 +16,7 @@ Multi-head attention is the baseline from [Attention Is All You Need](https://ar
 
 ## `mqa`
 
-![MQA architecture](assets/mqa.svg)
+![MQA architecture](assets/mqa.png)
 
 Multi-query attention follows [Fast Transformer Decoding: One Write-Head is All You Need](https://arxiv.org/abs/1911.02150). Query heads stay separate, but all heads share one key stream and one value stream, reducing decode-time KV bandwidth.
 
@@ -26,7 +26,7 @@ Multi-query attention follows [Fast Transformer Decoding: One Write-Head is All 
 
 ## `gqa`
 
-![GQA architecture](assets/gqa.svg)
+![GQA architecture](assets/gqa.png)
 
 Grouped-query attention follows [GQA](https://arxiv.org/abs/2305.13245). It keeps multiple KV heads, but fewer than the number of query heads, so it sits between MHA and MQA.
 
@@ -36,7 +36,7 @@ Grouped-query attention follows [GQA](https://arxiv.org/abs/2305.13245). It keep
 
 ## `gqa_rope`
 
-![GQA with RoPE architecture](assets/gqa_rope.svg)
+![GQA with RoPE architecture](assets/gqa_rope.png)
 
 `gqa_rope` combines [GQA](https://arxiv.org/abs/2305.13245) with rotary position embeddings from [RoFormer](https://arxiv.org/abs/2104.09864). In this repo, RoPE is applied inside attention to Q and K before grouped-KV attention runs.
 
@@ -46,7 +46,7 @@ Grouped-query attention follows [GQA](https://arxiv.org/abs/2305.13245). It keep
 
 ## `sliding_window`
 
-![Sliding-window attention architecture](assets/sliding_window.svg)
+![Sliding-window attention architecture](assets/sliding_window.png)
 
 Sliding-window attention uses the local-window idea associated with [Longformer](https://arxiv.org/abs/2004.05150). It keeps dense heads, but the attention mask only allows nearby tokens through.
 
@@ -56,7 +56,7 @@ Sliding-window attention uses the local-window idea associated with [Longformer]
 
 ## `sliding_gqa`
 
-![Sliding GQA architecture](assets/sliding_gqa.svg)
+![Sliding GQA architecture](assets/sliding_gqa.png)
 
 `sliding_gqa` combines local-window attention with grouped KV heads. It has both the reduced attention span of sliding-window attention and the smaller KV layout of GQA.
 
@@ -66,7 +66,7 @@ Sliding-window attention uses the local-window idea associated with [Longformer]
 
 ## `gemma3_hybrid`
 
-![Gemma 3 hybrid attention architecture](assets/gemma3_hybrid.svg)
+![Gemma 3 hybrid attention architecture](assets/gemma3_hybrid.png)
 
 The Gemma-style hybrid pattern is tagged to the [Gemma 3 Technical Report](https://arxiv.org/abs/2503.19786). It composes existing repo variants: several local `sliding_gqa` layers followed by a global `gqa_rope` layer.
 
@@ -76,7 +76,7 @@ The Gemma-style hybrid pattern is tagged to the [Gemma 3 Technical Report](https
 
 ## `mla`
 
-![MLA architecture](assets/mla.svg)
+![MLA architecture](assets/mla.png)
 
 Multi-head latent attention is tagged to [DeepSeek-V2](https://arxiv.org/abs/2405.04434). It caches a compact latent KV state plus a decoupled RoPE key, then reconstructs per-head K/V during attention.
 
@@ -86,7 +86,7 @@ Multi-head latent attention is tagged to [DeepSeek-V2](https://arxiv.org/abs/240
 
 ## `csa`
 
-![CSA architecture](assets/csa.svg)
+![CSA architecture](assets/csa.png)
 
 Compressed sparse attention is tagged to the [DeepSeek-V4 docs](https://huggingface.co/docs/transformers/main/model_doc/deepseek_v4). It compresses KV blocks, scores compressed entries with a sparse indexer, gathers top-k memory, keeps a local branch, and projects the result back through grouped output projection.
 
@@ -96,7 +96,7 @@ Compressed sparse attention is tagged to the [DeepSeek-V4 docs](https://huggingf
 
 ## `hca`
 
-![HCA architecture](assets/hca.svg)
+![HCA architecture](assets/hca.png)
 
 Heavily compressed attention is also tagged to the [DeepSeek-V4 docs](https://huggingface.co/docs/transformers/main/model_doc/deepseek_v4). It is the simpler compressed sibling of CSA: single-stream block compression, no sparse indexer, no local branch, then shared-KV attention over compressed entries.
 
