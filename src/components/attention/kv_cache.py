@@ -17,6 +17,9 @@ Three cache shapes, one per attention family:
                          pre-norm latent c_kv and the head-shared post-rope
                          decoupled key k_pe; per-head k/v are reconstructed
                          each forward via wkv_b.
+- ``MSACache``        -- full head-split k/v buffer plus the index-branch keys
+                         for msa. block-sparse selection has to gather from
+                         every past block, so nothing is dropped or compressed.
 
 ``CausalLM`` builds one cache per layer via ``layer.attn.init_cache()`` on
 the first decode call and threads the same instances through every step.
@@ -156,3 +159,35 @@ class MLACache:
 
     def position(self) -> int:
         return self.seq_len()
+
+
+class MSACache:
+    """incremental decode state for minimax sparse attention.
+
+    block-sparse selection needs every past block available to gather from, so
+    unlike the compressed caches this keeps the full head-split kv buffers plus
+    the per-token index-branch keys.
+
+        k, v: [b, h, s, d_head]   append-only kv buffers
+        ik:   [b, s, d_idx]       index-branch keys
+        total_seen: int           absolute token count.
+    """
+
+    def __init__(self) -> None:
+        self.k: Optional[torch.Tensor] = None
+        self.v: Optional[torch.Tensor] = None
+        self.ik: Optional[torch.Tensor] = None
+        self.total_seen = 0
+
+    def update(self, new_k: torch.Tensor, new_v: torch.Tensor, new_ik: torch.Tensor):
+        if self.k is None:
+            self.k, self.v, self.ik = new_k, new_v, new_ik
+        else:
+            self.k = torch.cat([self.k, new_k], dim=2)
+            self.v = torch.cat([self.v, new_v], dim=2)
+            self.ik = torch.cat([self.ik, new_ik], dim=1)
+        self.total_seen = self.k.shape[2]
+        return self.k, self.v, self.ik
+
+    def position(self) -> int:
+        return self.total_seen

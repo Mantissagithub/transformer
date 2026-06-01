@@ -46,7 +46,7 @@ No trainer or builder edits needed.
 
 | Group | Choices |
 |-------|---------|
-| Attention | mha, gqa, gqa_rope, mqa, sliding_window, sliding_gqa, gemma3_hybrid, csa, hca, mla. See [`docs/attention.md`](docs/attention.md) for the variant notes and diagrams. |
+| Attention | mha, gqa, gqa_rope, mqa, sliding_window, sliding_gqa, gemma3_hybrid, csa, hca, mla, msa. See [`docs/attention.md`](docs/attention.md) for the variant notes and diagrams. |
 | FFN | relu, swiglu, geglu. See [`docs/feedforward.md`](docs/feedforward.md). |
 | Normalization | layernorm, rmsnorm. See [`docs/normalization.md`](docs/normalization.md). |
 | Positional | sinusoidal, rope, alibi, rope/nope hybrid. See [`docs/positional.md`](docs/positional.md). |

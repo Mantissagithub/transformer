@@ -104,8 +104,18 @@ Heavily compressed attention is also tagged to the [DeepSeek-V4 docs](https://hu
 - Config: [`hca.yaml`](../configs/attention/hca.yaml)
 - Use when: you want a simpler compressed-memory attention path with heavier KV reduction.
 
+## `msa`
+
+![MSA architecture](assets/msa.png)
+
+MiniMax sparse attention is a GQA-based block-sparse self-attention. A cheap index branch runs one index query per GQA group against a single shared index key head, block-max-pools those scores into per-block scores, and top-k selects a few KV blocks per group. The sparse branch then runs ordinary GQA attention, but only over the keys gathered from the selected blocks — so each query attends to at most `top_k * block_size` keys instead of the whole sequence.
+
+- Implementation: [`msa.py`](../src/components/attention/msa.py)
+- Config: [`msa.yaml`](../configs/attention/msa.yaml)
+- Use when: you want long-context attention that keeps GQA's KV savings and adds learned block sparsity, picking which KV blocks each query reads instead of reading them all.
+
 ## Model compatibility
 
 The encoder-decoder path needs attention modules that support cross-attention and bidirectional encoder attention. In this repo, `mha`, `mqa`, `gqa`, `gqa_rope`, `sliding_window`, `sliding_gqa`, and `gemma3_hybrid` satisfy that path.
 
-`csa`, `hca`, and `mla` are self-attention-only variants and should run through the causal-LM path. The builder enforces this split so an experiment does not silently train with the wrong topology.
+`csa`, `hca`, `mla`, and `msa` are self-attention-only variants and should run through the causal-LM path. The builder enforces this split so an experiment does not silently train with the wrong topology.

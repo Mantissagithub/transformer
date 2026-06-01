@@ -1,3 +1,4 @@
+import inspect
 from typing import Any, Callable, Dict
 
 
@@ -12,6 +13,16 @@ class Registry:
             # pair re-registers. bites `python -m module` when the package
             # __init__ already imported the module via `from . import x`.
             if name in self._items:
+                existing = self._items[name]
+                existing_src = inspect.getsourcefile(existing)
+                obj_src = inspect.getsourcefile(obj)
+                same_symbol = (
+                    existing.__name__ == obj.__name__
+                    and existing_src is not None
+                    and existing_src == obj_src
+                )
+                if same_symbol:
+                    return obj
                 raise ValueError(f"{self._kind} '{name}' already registered")
             self._items[name] = obj
             return obj

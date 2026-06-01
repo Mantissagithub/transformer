@@ -36,7 +36,7 @@ def test_encoder_decoder_capable_variants(name):
     assert default_model_kind(cfg) == "encoder_decoder"
 
 
-@pytest.mark.parametrize("name", ["csa", "hca", "mla"])
+@pytest.mark.parametrize("name", ["csa", "hca", "mla", "msa"])
 def test_self_attention_only_variants(name):
     cfg = OmegaConf.create({"name": name})
     assert not supports_encoder_decoder(cfg)
@@ -86,6 +86,7 @@ def _ed_cfg(attn) -> OmegaConf:
     ("hca", {"m": 2, "g": 2, "c": 8, "d_c": 16, "d_g": 8}),
     ("mla", {"kv_lora_rank": 8, "q_lora_rank": 16, "qk_nope_head_dim": 4,
              "qk_rope_head_dim": 4, "v_head_dim": 8, "max_seq_len": 16}),
+    ("msa", {"n_kv_heads": 2, "block_size": 2, "top_k": 2, "d_idx": 4}),
 ])
 def test_build_transformer_rejects_self_attn_only(name, extra):
     cfg = _ed_cfg({"name": name, "n_heads": 4, **extra})

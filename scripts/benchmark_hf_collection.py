@@ -800,6 +800,7 @@ def _attention_variant_label(repo_id: str) -> str:
         "csa": "csa (compressed sparse attention)",
         "hca": "hca (heavily compressed attention)",
         "mla": "mla (multi-head latent attention)",
+        "msa": "msa (minimax sparse attention)",
     }
     return labels.get(variant, variant.replace("_", " "))
 

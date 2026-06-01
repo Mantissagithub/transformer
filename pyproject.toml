@@ -15,6 +15,7 @@ dependencies = [
     "omegaconf>=2.3",
     "pyyaml",
     "python-dotenv",
+    "rich>=15.0.0",
 ]
 
 [project.optional-dependencies]

@@ -8,6 +8,7 @@
 
 | Attention Variant | Repo | Status | Loss | PPL | Tok Acc | ROUGE-L | BLEU | Tok/s | Gen tok/s |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| msa (minimax sparse attention) | [`Pradheep1647/run_msa-meetingbank-bs8-e20-fp32-19`](https://huggingface.co/Pradheep1647/run_msa-meetingbank-bs8-e20-fp32-19) | ok | 2.466 | 11.78 | 0.5203 | 0.0803 |  | 7313 | 113.1 |
 | mha (multi-head attention) | [`Pradheep1647/run_mha-meetingbank-bs8-e20-fp32-19`](https://huggingface.co/Pradheep1647/run_mha-meetingbank-bs8-e20-fp32-19) | ok | 2.764 | 15.86 | 0.5804 | 0.3951 | 24.71 | 4364 | 241.9 |
 | gqa_rope (grouped-query attention + RoPE) | [`Pradheep1647/run_gqa_rope-meetingbank-bs8-e20-fp32-19`](https://huggingface.co/Pradheep1647/run_gqa_rope-meetingbank-bs8-e20-fp32-19) | ok | 2.78 | 16.12 | 0.5762 | 0.3799 | 24.18 | 8039 | 345.8 |
 | mqa (multi-query attention) | [`Pradheep1647/run_mqa-meetingbank-bs8-e20-fp32-19`](https://huggingface.co/Pradheep1647/run_mqa-meetingbank-bs8-e20-fp32-19) | ok | 2.791 | 16.29 | 0.5722 | 0.3804 | 23.15 | 4972 | 224.6 |
@@ -18,5 +19,10 @@
 
 ## Warnings
 
+Some optional generation metrics were skipped because their packages are not installed.
+Install them with `uv sync --extra benchmark`, then rerun the benchmark to populate the blank metric columns.
+
+- bertscore unavailable: ModuleNotFoundError: No module named 'bert_score'
+- bleu unavailable: ModuleNotFoundError: No module named 'sacrebleu'
 - replaced published tokenizer.json with local causal tokenizer fallback for Pradheep1647/run_csa-meetingbank-bs8-e20-fp32-19
 - replaced published tokenizer.json with local causal tokenizer fallback for Pradheep1647/run_hca-meetingbank-bs8-e20-fp32-19

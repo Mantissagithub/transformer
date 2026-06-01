@@ -8,4 +8,5 @@ from . import sliding_gqa  # noqa: F401
 from . import csa  # noqa: F401
 from . import hca  # noqa: F401
 from . import mla  # noqa: F401
-from .kv_cache import KVCache, SlidingKVCache, CSACache, HCACache, MLACache  # noqa: F401
+from . import msa  # noqa: F401
+from .kv_cache import KVCache, SlidingKVCache, CSACache, HCACache, MLACache, MSACache  # noqa: F401

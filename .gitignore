@@ -9,3 +9,6 @@ outputs/
 runs/
 .claude/
 *.egg-info
+.venv/
+.pytest_cache/
+*.btr
