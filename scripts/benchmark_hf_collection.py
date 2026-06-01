@@ -985,37 +985,15 @@ def _render_charts(
     except Exception:
         pass
 
-    # 2) evaluation quality: perplexity (lower better) + token accuracy (higher)
-    try:
-        fig, axes = plt.subplots(1, 2, figsize=(12, 0.55 * len(ok) + 1.8))
-        _panel_hbar(axes[0], [(k(r), _num(r.perplexity), c(r)) for r in ok],
-                    "perplexity  (lower is better)", lower_better=True)
-        axes[0].set_title("Eval perplexity")
-        _panel_hbar(axes[1], [(k(r), _num(r.token_accuracy), c(r)) for r in ok],
-                    "token accuracy  (higher is better)", lower_better=False)
-        axes[1].set_title("Token accuracy")
-        fig.savefig(assets_dir / "eval_quality.png", bbox_inches="tight")
-        plt.close(fig)
-        charts["eval_quality"] = "assets/eval_quality.png"
-    except Exception:
-        pass
+    # 2+3) quality charts, split by family — perplexity/accuracy and ROUGE-L/BLEU
+    # are not comparable across encoder-decoder vs decoder-only, so each family
+    # gets its own figures.
+    enc = [r for r in ok if kinds.get(r.repo_id) != "causal_lm"]
+    dec = [r for r in ok if kinds.get(r.repo_id) == "causal_lm"]
+    charts.update(_quality_charts(plt, assets_dir, enc, "encdec"))
+    charts.update(_quality_charts(plt, assets_dir, dec, "causal"))
 
-    # 3) generation quality: ROUGE-L + BLEU
-    try:
-        fig, axes = plt.subplots(1, 2, figsize=(12, 0.55 * len(ok) + 1.8))
-        _panel_hbar(axes[0], [(k(r), _num(r.rougeL), c(r)) for r in ok],
-                    "ROUGE-L  (higher is better)", lower_better=False)
-        axes[0].set_title("ROUGE-L")
-        _panel_hbar(axes[1], [(k(r), _num(r.bleu), c(r)) for r in ok],
-                    "BLEU  (higher is better)", lower_better=False)
-        axes[1].set_title("BLEU")
-        fig.savefig(assets_dir / "generation_quality.png", bbox_inches="tight")
-        plt.close(fig)
-        charts["generation_quality"] = "assets/generation_quality.png"
-    except Exception:
-        pass
-
-    # 4) throughput: eval tok/s vs generation tok/s (grouped bars)
+    # 4) throughput: eval vs generation tok/s (speed is comparable -> combined)
     try:
         import numpy as np
         names = [k(r) for r in ok]
@@ -1038,19 +1016,28 @@ def _render_charts(
     except Exception:
         pass
 
-    # 5) quality vs efficiency scatter (ROUGE-L vs generation speed)
+    # 5) quality vs efficiency scatter (combined; marker shape encodes family)
     try:
-        pts = [(k(r), _num(r.generation_tokens_per_sec), _num(r.rougeL), c(r)) for r in ok]
+        from matplotlib.lines import Line2D
+        pts = [(r, _num(r.generation_tokens_per_sec), _num(r.rougeL)) for r in ok]
         pts = [p for p in pts if p[1] is not None and p[2] is not None]
         if pts:
             fig, ax = plt.subplots(figsize=(8, 6))
-            for name, xv, yv, col in pts:
-                ax.scatter(xv, yv, s=110, color=col, edgecolor="white", linewidth=1.2, zorder=3)
-                ax.annotate(name, (xv, yv), textcoords="offset points",
+            for r, xv, yv in pts:
+                marker = "o" if kinds.get(r.repo_id) == "causal_lm" else "s"
+                ax.scatter(xv, yv, s=120, color=c(r), marker=marker,
+                           edgecolor="white", linewidth=1.2, zorder=3)
+                ax.annotate(k(r), (xv, yv), textcoords="offset points",
                             xytext=(7, 4), fontsize=9)
             ax.set_xlabel("generation speed (tok/s)  →")
             ax.set_ylabel("ROUGE-L  →")
             ax.set_title("Quality vs. efficiency")
+            ax.legend(handles=[
+                Line2D([0], [0], marker="o", color="w", markerfacecolor="#444444",
+                       markersize=9, label="decoder-only"),
+                Line2D([0], [0], marker="s", color="w", markerfacecolor="#444444",
+                       markersize=9, label="encoder–decoder"),
+            ], loc="best", title="model type")
             fig.savefig(assets_dir / "tradeoff.png", bbox_inches="tight")
             plt.close(fig)
             charts["tradeoff"] = "assets/tradeoff.png"
@@ -1058,6 +1045,48 @@ def _render_charts(
         pass
 
     return charts
+
+
+def _quality_charts(plt, assets_dir: Path, subset: list, suffix: str) -> dict[str, str]:
+    """per-family eval-quality (PPL + token acc) and generation-quality
+    (ROUGE-L + BLEU) figures. keyed '<metric>_<suffix>'."""
+    out: dict[str, str] = {}
+    if not subset:
+        return out
+
+    def k(r): return _variant_key(r.repo_id)
+    def c(r): return _variant_color(r.repo_id)
+    h = 0.62 * len(subset) + 1.8
+
+    try:
+        fig, axes = plt.subplots(1, 2, figsize=(12, h))
+        _panel_hbar(axes[0], [(k(r), _num(r.perplexity), c(r)) for r in subset],
+                    "perplexity  (lower is better)", lower_better=True)
+        axes[0].set_title("Eval perplexity")
+        _panel_hbar(axes[1], [(k(r), _num(r.token_accuracy), c(r)) for r in subset],
+                    "token accuracy  (higher is better)", lower_better=False)
+        axes[1].set_title("Token accuracy")
+        fig.savefig(assets_dir / f"eval_quality_{suffix}.png", bbox_inches="tight")
+        plt.close(fig)
+        out[f"eval_quality_{suffix}"] = f"assets/eval_quality_{suffix}.png"
+    except Exception:
+        pass
+
+    try:
+        fig, axes = plt.subplots(1, 2, figsize=(12, h))
+        _panel_hbar(axes[0], [(k(r), _num(r.rougeL), c(r)) for r in subset],
+                    "ROUGE-L  (higher is better)", lower_better=False)
+        axes[0].set_title("ROUGE-L")
+        _panel_hbar(axes[1], [(k(r), _num(r.bleu), c(r)) for r in subset],
+                    "BLEU  (higher is better)", lower_better=False)
+        axes[1].set_title("BLEU")
+        fig.savefig(assets_dir / f"generation_quality_{suffix}.png", bbox_inches="tight")
+        plt.close(fig)
+        out[f"generation_quality_{suffix}"] = f"assets/generation_quality_{suffix}.png"
+    except Exception:
+        pass
+
+    return out
 
 
 def _highlights(ok: list[BenchmarkResult]) -> list[str]:
@@ -1158,12 +1187,19 @@ def _write_readme(path: Path, results: list[BenchmarkResult], settings: dict[str
     ok = [r for r in results if r.status == "ok"]
     dec_only = sorted({_variant_key(r.repo_id) for r in ok if kinds.get(r.repo_id) == "causal_lm"})
     enc_dec = sorted({_variant_key(r.repo_id) for r in ok if kinds.get(r.repo_id) != "causal_lm"})
+    enc_results = [r for r in results if kinds.get(r.repo_id) != "causal_lm"]
+    dec_results = [r for r in results if kinds.get(r.repo_id) == "causal_lm"]
+    enc_ok = [r for r in ok if kinds.get(r.repo_id) != "causal_lm"]
+    dec_ok = [r for r in ok if kinds.get(r.repo_id) == "causal_lm"]
+
     lines = [
         "# Transformer Lab — Attention Benchmark",
         "",
-        "Attention variants trained on MeetingBank and evaluated head-to-head. The set spans both "
-        "**encoder–decoder transformers** and **decoder-only (causal-LM)** models, each benchmarked "
-        "through the topology it was trained in.",
+        "Attention variants trained on MeetingBank, grouped into the two model families they were "
+        "trained in — **encoder–decoder transformers** and **decoder-only (causal-LM)** models. "
+        "Because the families optimise different objectives, the quality metrics are benchmarked "
+        "**separately per family**; only the cross-cutting views (training loss, throughput, and "
+        "the speed/quality overview) place them on a shared axis.",
         "",
         f"**Setup** — dataset `{settings.get('dataset', 'meetingbank')}` / "
         f"`{settings.get('split', 'validation')}` · generation samples "
@@ -1172,38 +1208,72 @@ def _write_readme(path: Path, results: list[BenchmarkResult], settings: dict[str
         f"[model collection]({COLLECTION_URL}).",
         "",
     ]
-    highlights = _highlights(ok)
-    if highlights:
-        lines.append("**Highlights**")
-        lines.append("")
-        lines.extend(f"- {h}" for h in highlights)
-        lines.append("")
 
-    def section(title: str, chart: str, takeaway: str) -> None:
-        if chart not in charts:
+    def chart_block(level: int, title: str, chart_key: str, takeaway: str) -> None:
+        if chart_key not in charts:
             return
-        lines.extend([f"## {title}", "", f"![{title}]({charts[chart]})", "", takeaway, ""])
+        lines.extend(["#" * level + f" {title}", "", f"![{title}]({charts[chart_key]})", "", takeaway, ""])
 
+    # --- cross-family views (shared, comparable axes) ---
     loss_takeaway = (
-        "Training loss vs. step for every variant, pulled from each model's `loss_curve.csv` on the "
-        "Hub and exponentially smoothed. **Solid** lines are decoder-only / causal-LM models"
+        "Training loss vs. step, pulled from each model's `loss_curve.csv` on the Hub and "
+        "exponentially smoothed. **Solid** lines are decoder-only / causal-LM models"
         + (f" ({', '.join(dec_only)})" if dec_only else "")
         + "; **dashed** lines are encoder–decoder transformers"
         + (f" ({', '.join(enc_dec)})" if enc_dec else "")
-        + ". The two groups optimise different objectives, so absolute loss is not directly "
-        "comparable across them."
+        + ". Shown together for reference, but the two families optimise different objectives so "
+        "absolute loss is not directly comparable."
     )
-    section("Training loss", "loss_curves", loss_takeaway)
-    section("Evaluation quality", "eval_quality",
-            "Teacher-forced perplexity (lower is better) and next-token accuracy on the held-out "
-            "validation split.")
-    section("Generation quality", "generation_quality",
-            "Summary-generation overlap against reference summaries (ROUGE-L and BLEU).")
-    section("Throughput", "throughput",
-            "Evaluation and autoregressive-generation speed, in tokens per second.")
-    section("Quality vs. efficiency", "tradeoff",
-            "Generation quality against generation speed — the upper-right corner is favourable.")
+    chart_block(2, "Training loss", "loss_curves", loss_takeaway)
+    chart_block(2, "Throughput", "throughput",
+                "Evaluation and autoregressive-generation speed in tokens per second — the metric "
+                "that is directly comparable across both families.")
+    if "tradeoff" in charts:
+        lines.extend([
+            "## Quality vs. efficiency",
+            "",
+            "> Cross-family overview only. ROUGE-L against generation speed for all variants "
+            "(circles = decoder-only, squares = encoder–decoder). Quality is *not* comparable "
+            "across families — see each family's own section below for the head-to-head numbers.",
+            "",
+            f"![Quality vs. efficiency]({charts['tradeoff']})",
+            "",
+        ])
 
+    # --- per-family quality ---
+    def family_section(title: str, suffix: str, subset_ok: list, table_results: list, lead=None) -> None:
+        lines.extend([f"## {title}", ""])
+        if lead:
+            lines.extend([lead, ""])
+        hi = _highlights(subset_ok)
+        if hi:
+            lines.append("**Highlights**")
+            lines.append("")
+            lines.extend(f"- {h}" for h in hi)
+            lines.append("")
+        chart_block(3, "Evaluation quality", f"eval_quality_{suffix}",
+                    "Teacher-forced perplexity (lower is better) and next-token accuracy on the "
+                    "held-out validation split.")
+        chart_block(3, "Generation quality", f"generation_quality_{suffix}",
+                    "Summary-generation overlap against reference summaries (ROUGE-L and BLEU).")
+        lines.extend(["<details>", f"<summary>Raw metrics — {title}</summary>", ""])
+        lines.extend(_metrics_table_lines(table_results))
+        lines.extend(["", "</details>", ""])
+
+    causal_lead = (
+        "> **Why this family scores much lower on generation.** Encoder–decoder models get "
+        "cross-attention that aligns the decoder directly to the source transcript, making the "
+        "copy-heavy summarization task far easier; decoder-only models must learn that purely "
+        "in-context. All three here also compress or sparsify the KV cache, discarding source "
+        "detail that copying needs, and they show the classic teacher-forcing gap — msa reaches "
+        "the lowest perplexity of any model yet near-zero BLEU, because low next-token loss does "
+        "not survive free-running generation. Compare these variants against each other, not "
+        "against the encoder–decoder family above."
+    )
+    family_section("Encoder–decoder transformers", "encdec", enc_ok, enc_results)
+    family_section("Decoder-only (causal-LM)", "causal", dec_ok, dec_results, lead=causal_lead)
+
+    # --- model index, grouped by family ---
     lines.extend([
         "## Models",
         "",
@@ -1211,22 +1281,21 @@ def _write_readme(path: Path, results: list[BenchmarkResult], settings: dict[str
         f"[transformer-lab collection]({COLLECTION_URL}).",
         "",
     ])
-    for result in sorted(results, key=lambda r: (r.status != "ok", _sort_value(r.perplexity))):
-        kind_label = "decoder-only" if kinds.get(result.repo_id) == "causal_lm" else "encoder–decoder"
-        lines.append(
-            f"- {HF_LOGO} **{_variant_key(result.repo_id)}** "
-            f"[`{result.repo_id}`](https://huggingface.co/{result.repo_id}) "
-            f"— {kind_label} · {result.status}"
-        )
-    lines.append("")
+    for group_title, group in (("Encoder–decoder", enc_results), ("Decoder-only", dec_results)):
+        if not group:
+            continue
+        lines.extend([f"**{group_title}**", ""])
+        for result in sorted(group, key=lambda r: (r.status != "ok", _sort_value(r.perplexity))):
+            lines.append(
+                f"- {HF_LOGO} **{_variant_key(result.repo_id)}** "
+                f"[`{result.repo_id}`](https://huggingface.co/{result.repo_id}) ({result.status})"
+            )
+        lines.append("")
 
-    lines.extend(["<details>", "<summary>Raw metrics</summary>", ""])
-    lines.extend(_metrics_table_lines(results))
     warn = _warning_lines(results)
     if warn:
-        lines.append("")
         lines.extend(warn)
-    lines.extend(["", "</details>", ""])
+        lines.append("")
 
     path.write_text("\n".join(lines) + "\n")
 
