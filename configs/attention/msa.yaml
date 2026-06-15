@@ -1,7 +1,0 @@
-name: msa
-n_heads: 8
-n_kv_heads: 2
-block_size: 4
-top_k: 2
-d_idx: 8
-bias: true

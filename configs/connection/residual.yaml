@@ -1,3 +1,0 @@
-name: residual
-dropout: 0.1
-norm: layernorm

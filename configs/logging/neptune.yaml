@@ -1,3 +1,0 @@
-backend: neptune
-project: mantissa6789/hyperconnections
-# api token must be supplied via NEPTUNE_API_TOKEN environment variable

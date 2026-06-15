@@ -1,0 +1,37 @@
+base_model: bigcode/starcoderbase-1b
+dataset_repo: Pradheep1647/lean-starcoder-sft-data
+phase1_repo: Pradheep1647/starcoderbase-1b-lean-syntax-lora
+phase2_repo: Pradheep1647/starcoderbase-1b-lean-proofs-lora
+merged_repo: Pradheep1647/starcoderbase-1b-lean-sft
+
+openrouter:
+  requested_model: deepseek/deepseek-v4-flash
+  base_url: https://openrouter.ai/api/v1
+  timeout_sec: 90
+  max_retries: 4
+
+dataset:
+  syntax_count: 8000
+  proof_count: 8000
+  seed: 1647
+  validation_fraction: 0.05
+  test_fraction: 0.05
+  max_response_chars: 6000
+
+training:
+  max_length: 2048
+  phase1_epochs: 2
+  phase2_epochs: 2
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 16
+  learning_rate: 0.0002
+  warmup_ratio: 0.03
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  seed: 1647
+  use_4bit: true
+  precision: fp16
+  merge_final: true
+logging:
+  tensorboard_dir: runs/lean-starcoder-sft

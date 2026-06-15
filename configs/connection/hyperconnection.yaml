@@ -1,4 +1,0 @@
-name: hyperconnection
-hyper_n: 4
-dropout: 0.1
-dynamic: true
