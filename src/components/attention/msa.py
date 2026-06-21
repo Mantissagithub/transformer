@@ -9,8 +9,9 @@
 #   1) index branch — one lightweight index query per gqa group (q_idx, h heads)
 #      attends to a single shared index key head (k_idx). that gives a score
 #      matrix per group; block-max-pool collapses each key block to its best
-#      score, then top-k picks the strongest blocks. one set of block indices
-#      per gqa group (i_1, i_2, ... in the diagram).
+#      score, then top-k keeps the local block plus the strongest non-local
+#      blocks. one set of block indices per gqa group (i_1, i_2, ... in the
+#      diagram).
 #   2) sparse branch — the real q (H heads), k, v (h kv heads) partitioned into
 #      blocks. each query gathers only the k/v inside its group's selected
 #      blocks and attends over those, with the usual causal mask. heads inside
@@ -37,7 +38,8 @@ shapes:
   top_k      = number of blocks kept per (group, query)
 
 implemented:
-  index branch (block-max-pool + top-k), gather-based sparse gqa attention,
+  index branch (block-max-pool + forced local block + top-k), gather-based
+  sparse gqa attention, paper-style KL alignment helper for the index branch,
   vectorized-over-t prefill, per-t serial reference, kv-cache for incremental
   decode (full k/v retained plus the index keys, since block selection needs
   every past block available to gather from).
@@ -77,25 +79,43 @@ def block_max_pool(scores: Tensor, block_size: int) -> Tensor:
     return scores.view(*lead, n_blocks, block_size).amax(dim=-1)
 
 
-def select_topk_blocks(block_scores: Tensor, top_k: int) -> Tensor:
-    """top-k block indices along the last axis. returns [..., k_eff] where
-    k_eff = min(top_k, n_blocks)."""
-    k_eff = min(top_k, block_scores.shape[-1])
-    return block_scores.topk(k_eff, dim=-1).indices
+def select_topk_blocks(
+    block_scores: Tensor,
+    top_k: int,
+    local_blocks: Tensor | None = None,
+) -> Tensor:
+    """top-k block indices along the last axis.
 
-
-def block_score_bias(block_scores: Tensor, sel: Tensor, block_size: int, group_size: int) -> Tensor:
-    """turn selected block scores into an additive attention-logit bias.
-
-    The forward sparse pattern stays hard top-k, but the selected blocks carry
-    a differentiable prior from the index branch so w_iq / w_ik receive
-    training signal from the LM loss.
+    When local_blocks is provided, top_k is the total selected-block budget:
+    one slot is reserved for the block containing the query, and the remaining
+    slots come from the best non-local blocks.
     """
-    sel_scores = block_scores.gather(dim=-1, index=sel)                      # [..., k_eff]
-    sel_logp = torch.log_softmax(sel_scores, dim=-1)                         # [..., k_eff]
-    bias = sel_logp[..., None].expand(*sel_logp.shape, block_size)
-    bias = bias.reshape(*sel_logp.shape[:-1], sel_logp.shape[-1] * block_size)
-    return bias.repeat_interleave(group_size, dim=0)
+    k_eff = min(top_k, block_scores.shape[-1])
+    if local_blocks is None:
+        return block_scores.topk(k_eff, dim=-1).indices
+
+    local = local_blocks.clamp(max=block_scores.shape[-1] - 1).unsqueeze(-1)
+    if k_eff == 1:
+        return local
+
+    scores = block_scores.scatter(dim=-1, index=local, value=float("-inf"))
+    extra_k = k_eff - 1
+    extra = scores.topk(extra_k, dim=-1).indices
+    return torch.cat([local, extra], dim=-1)
+
+
+def selected_token_positions(
+    sel: Tensor,
+    block_size: int,
+    seq_len: int,
+    query_positions: Tensor,
+) -> tuple[Tensor, Tensor, Tensor]:
+    """expand selected blocks to token positions and validity masks."""
+    within = torch.arange(block_size, device=sel.device)
+    kpos = (sel[..., None] * block_size + within).reshape(*sel.shape[:-1], sel.shape[-1] * block_size)
+    valid = (kpos < seq_len) & (kpos <= query_positions)
+    kpos_c = kpos.clamp(max=seq_len - 1)
+    return kpos, kpos_c, valid
 
 
 @ATTENTION.register("msa")
@@ -114,6 +134,12 @@ class MiniMaxSparseAttention(AttentionBase):
         super().__init__(d_model, n_heads, dropout)
         if n_heads % n_kv_heads != 0:
             raise ValueError(f"n_heads ({n_heads}) must be divisible by n_kv_heads ({n_kv_heads})")
+        if block_size <= 0:
+            raise ValueError(f"block_size ({block_size}) must be positive")
+        if top_k <= 0:
+            raise ValueError(f"top_k ({top_k}) must be positive")
+        if d_idx <= 0:
+            raise ValueError(f"d_idx ({d_idx}) must be positive")
         self.n_kv_heads = n_kv_heads
         self.group_size = n_heads // n_kv_heads
         self.block_size = block_size
@@ -167,26 +193,28 @@ class MiniMaxSparseAttention(AttentionBase):
         q  = self.wq(H).view(s, n_h, d_head)
         k  = self.wk(H).view(s, h, d_head)
         v  = self.wv(H).view(s, h, d_head)
-        iq = self.w_iq(H).view(s, h, d_idx)
-        ik = self.w_ik(H)                                         # [s, d_idx]
+        H_idx = H.detach()
+        iq = self.w_iq(H_idx).view(s, h, d_idx)
+        ik = self.w_ik(H_idx)                                     # [s, d_idx]
 
         ts = torch.arange(s, device=H.device)
         key_ok = ts[None, :] <= ts[:, None]                      # [s_q, s_k] : kj <= qi
+        local_blocks = (ts // block_size)[None].expand(h, s)
 
         # index branch: [h, s_q, s_k] scores, future keys masked before pooling.
         idx_scores = torch.einsum("qgi,ki->gqk", iq, ik) / math.sqrt(d_idx)
         idx_scores = idx_scores.masked_fill(~key_ok[None], float("-inf"))
         block_scores = block_max_pool(idx_scores, block_size)    # [h, s_q, n_blocks]
-        sel = select_topk_blocks(block_scores, self.top_k)       # [h, s_q, k_eff]
-        k_eff = sel.shape[-1]
-        score_bias = block_score_bias(block_scores, sel, block_size, group_size)
+        sel = select_topk_blocks(block_scores, self.top_k, local_blocks)
 
         # expand selected blocks to key positions [h, s_q, k_eff*block_size]
-        within = torch.arange(block_size, device=H.device)
-        kpos = (sel[..., None] * block_size + within).reshape(h, s, k_eff * block_size)
-        n_keys = kpos.shape[-1]
-        valid = (kpos < s) & (kpos <= ts[None, :, None])         # in-range and causal
-        kpos_c = kpos.clamp(max=s - 1)
+        _, kpos_c, valid = selected_token_positions(
+            sel,
+            block_size,
+            s,
+            ts[None, :, None],
+        )
+        n_keys = kpos_c.shape[-1]
 
         # gather the selected group kv, then expand groups to heads
         k_g = k.permute(1, 0, 2)                                 # [h, s, d_head]
@@ -201,7 +229,6 @@ class MiniMaxSparseAttention(AttentionBase):
         # sparse attention over the gathered keys only
         q_h = q.permute(1, 0, 2)                                 # [H, s_q, d_head]
         scores = torch.einsum("hqd,hqnd->hqn", q_h, k_sel) / math.sqrt(d_head)
-        scores = scores + score_bias
         scores = scores.masked_fill(~valid_h, float("-inf"))
         any_valid = valid_h.any(dim=-1)                          # [H, s_q]
         # a query with no visible key would softmax an all-(-inf) row -> NaN;
@@ -219,7 +246,7 @@ class MiniMaxSparseAttention(AttentionBase):
         b, s, _ = H.shape
         k  = self.wk(H).view(b, s, self.n_kv_heads, self.d_head).permute(0, 2, 1, 3)
         v  = self.wv(H).view(b, s, self.n_kv_heads, self.d_head).permute(0, 2, 1, 3)
-        ik = self.w_ik(H)                                        # [b, s, d_idx]
+        ik = self.w_ik(H.detach())                               # [b, s, d_idx]
         cache.k, cache.v, cache.ik = k.contiguous(), v.contiguous(), ik.contiguous()
         cache.total_seen = s
 
@@ -234,25 +261,27 @@ class MiniMaxSparseAttention(AttentionBase):
         # project and append the new token's kv + index key.
         k_new  = self.wk(h_new).view(b, h, 1, d_head)
         v_new  = self.wv(h_new).view(b, h, 1, d_head)
-        ik_new = self.w_ik(h_new)[:, None, :]                    # [b, 1, d_idx]
+        h_idx = h_new.detach()
+        ik_new = self.w_ik(h_idx)[:, None, :]                    # [b, 1, d_idx]
         cache.update(k_new, v_new, ik_new)
         t_abs = cache.total_seen - 1                             # position of the new query
 
         outs = []
         for bi in range(b):
-            iq = self.w_iq(h_new[bi]).view(h, d_idx)             # [h, d_idx]
+            iq = self.w_iq(h_idx[bi]).view(h, d_idx)             # [h, d_idx]
             ik = cache.ik[bi]                                    # [s_k, d_idx]
             # every cached key is causal for the new query, so no key mask here.
             idx_scores = (iq @ ik.T) / math.sqrt(d_idx)          # [h, s_k]
             block_scores = block_max_pool(idx_scores, block_size)
-            sel = select_topk_blocks(block_scores, self.top_k)   # [h, k_eff]
-            k_eff = sel.shape[-1]
-            score_bias = block_score_bias(block_scores, sel, block_size, group_size)
+            local_blocks = torch.full((h,), t_abs // block_size, device=q.device, dtype=torch.long)
+            sel = select_topk_blocks(block_scores, self.top_k, local_blocks)
 
-            within = torch.arange(block_size, device=q.device)
-            kpos = (sel[..., None] * block_size + within).reshape(h, k_eff * block_size)
-            valid = kpos <= t_abs                                # [h, n_keys]
-            kpos_c = kpos.clamp(max=t_abs)
+            _, kpos_c, valid = selected_token_positions(
+                sel,
+                block_size,
+                cache.total_seen,
+                torch.full((h, 1), t_abs, device=q.device, dtype=torch.long),
+            )
 
             k_bi = cache.k[bi]                                   # [h, s_k, d_head]
             v_bi = cache.v[bi]
@@ -265,7 +294,6 @@ class MiniMaxSparseAttention(AttentionBase):
 
             q_bi = self.wq(h_new[bi]).view(n_h, d_head)          # [H, d_head]
             scores = torch.einsum("hd,hnd->hn", q_bi, k_sel) / math.sqrt(d_head)
-            scores = scores + score_bias
             scores = scores.masked_fill(~valid_h, float("-inf"))
             any_valid = valid_h.any(dim=-1)
             scores = scores.masked_fill(~any_valid[:, None], 0.0)
@@ -286,20 +314,22 @@ class MiniMaxSparseAttention(AttentionBase):
         q  = self.wq(H).view(s, n_h, d_head)
         k  = self.wk(H).view(s, h, d_head)
         v  = self.wv(H).view(s, h, d_head)
-        iq = self.w_iq(H).view(s, h, d_idx)
-        ik = self.w_ik(H)
+        H_idx = H.detach()
+        iq = self.w_iq(H_idx).view(s, h, d_idx)
+        ik = self.w_ik(H_idx)
 
         for t in range(s):
             idx_scores = (iq[t] @ ik[: t + 1].T) / math.sqrt(d_idx)   # [h, t+1]
             block_scores = block_max_pool(idx_scores, block_size)     # [h, n_blocks]
-            sel = select_topk_blocks(block_scores, self.top_k)        # [h, k_eff]
-            k_eff = sel.shape[-1]
-            score_bias = block_score_bias(block_scores, sel, block_size, group_size)
+            local_blocks = torch.full((h,), t // block_size, device=H.device, dtype=torch.long)
+            sel = select_topk_blocks(block_scores, self.top_k, local_blocks)
 
-            within = torch.arange(block_size, device=H.device)
-            kpos = (sel[..., None] * block_size + within).reshape(h, k_eff * block_size)
-            valid = kpos <= t                                         # [h, n_keys]
-            kpos_c = kpos.clamp(max=t)
+            _, kpos_c, valid = selected_token_positions(
+                sel,
+                block_size,
+                s,
+                torch.full((h, 1), t, device=H.device, dtype=torch.long),
+            )
 
             gidx = torch.arange(h, device=H.device)[:, None].expand_as(kpos_c)
             k_sel = k[kpos_c, gidx]                                   # [h, n_keys, d_head]
@@ -309,7 +339,6 @@ class MiniMaxSparseAttention(AttentionBase):
             valid_h = valid.repeat_interleave(group_size, dim=0)
 
             scores = torch.einsum("hd,hnd->hn", q[t], k_sel) / math.sqrt(d_head)
-            scores = scores + score_bias
             scores = scores.masked_fill(~valid_h, float("-inf"))
             any_valid = valid_h.any(dim=-1)
             scores = scores.masked_fill(~any_valid[:, None], 0.0)
@@ -318,6 +347,64 @@ class MiniMaxSparseAttention(AttentionBase):
             o = o * any_valid[:, None]
             out[t] = self.wo(o.reshape(n_h * d_head))
         return out
+
+    def kl_alignment_loss(self, H: Tensor) -> Tensor:
+        """paper-style auxiliary loss for the index branch.
+
+        The main forward pass uses hard top-k routing, so the LM loss does not
+        train the index projections. This KL matches the index distribution to
+        the group-averaged main-branch attention distribution on the selected
+        token support, with the teacher and hidden-state inputs detached.
+        """
+        if H.dim() == 2:
+            return self._kl_alignment_loss_seq(H)
+        losses = [self._kl_alignment_loss_seq(H[bi]) for bi in range(H.shape[0])]
+        return torch.stack(losses).mean()
+
+    def _kl_alignment_loss_seq(self, H: Tensor) -> Tensor:
+        s, _ = H.shape
+        h, group_size = self.n_kv_heads, self.group_size
+        d_idx, d_head, block_size = self.d_idx, self.d_head, self.block_size
+
+        H_idx = H.detach()
+        iq = self.w_iq(H_idx).view(s, h, d_idx)
+        ik = self.w_ik(H_idx)
+        q = self.wq(H).view(s, h, group_size, d_head).detach()
+        k = self.wk(H).view(s, h, d_head).detach()
+
+        ts = torch.arange(s, device=H.device)
+        key_ok = ts[None, :] <= ts[:, None]
+        local_blocks = (ts // block_size)[None].expand(h, s)
+
+        idx_scores = torch.einsum("qgi,ki->gqk", iq, ik) / math.sqrt(d_idx)
+        idx_scores = idx_scores.masked_fill(~key_ok[None], float("-inf"))
+        block_scores = block_max_pool(idx_scores, block_size)
+        sel = select_topk_blocks(block_scores, self.top_k, local_blocks)
+
+        _, kpos_c, valid = selected_token_positions(
+            sel,
+            block_size,
+            s,
+            ts[None, :, None],
+        )
+        n_keys = kpos_c.shape[-1]
+        gidx = torch.arange(h, device=H.device)[:, None, None].expand(h, s, n_keys)
+        k_sel = k.permute(1, 0, 2)[gidx, kpos_c]                  # [h, s, n, d_head]
+
+        idx_selected = idx_scores.gather(dim=-1, index=kpos_c)
+        idx_selected = idx_selected.masked_fill(~valid, float("-inf"))
+        idx_logp = torch.log_softmax(idx_selected, dim=-1)
+
+        q_g = q.permute(1, 2, 0, 3)                               # [h, group, s, d_head]
+        main_scores = torch.einsum("hgsd,hsnd->hgsn", q_g, k_sel) / math.sqrt(d_head)
+        main_scores = main_scores.masked_fill(~valid[:, None], float("-inf"))
+        teacher = torch.softmax(main_scores, dim=-1).mean(dim=1).detach()
+        teacher = teacher.masked_fill(~valid, 0.0)
+
+        loss_terms = F.kl_div(idx_logp, teacher, reduction="none")
+        loss_terms = torch.where(valid, loss_terms, torch.zeros_like(loss_terms))
+        loss = loss_terms.sum(dim=-1)
+        return loss.mean()
 
 
 if __name__ == "__main__":
@@ -354,11 +441,21 @@ if __name__ == "__main__":
     pd = (full - decoded).abs().max().item()
     assert pd < 1e-4, f"prefill != decode, max abs diff {pd}"
 
-    # selected block scores also bias the sparse logits, so the index branch
-    # receives gradient even though the gather pattern is still hard top-k.
+    # The LM loss trains the main branch only; the paper trains the index
+    # branch with an auxiliary KL alignment loss.
     loss = out.sum()
     loss.backward()
-    for name in ("wq", "wk", "wv", "wo", "w_iq", "w_ik"):
+    for name in ("wq", "wk", "wv", "wo"):
         p = getattr(mod, name).weight
         assert p.grad is not None, f"{name} did not receive a gradient"
+    assert mod.w_iq.weight.grad is None
+    assert mod.w_ik.weight.grad is None
+
+    mod.zero_grad()
+    kl = mod.kl_alignment_loss(x)
+    kl.backward()
+    assert mod.w_iq.weight.grad is not None
+    assert mod.w_ik.weight.grad is not None
+    assert mod.wq.weight.grad is None
+    assert mod.wk.weight.grad is None
     print(f"msa smoke test ok (vec vs serial {diff:.2e}, prefill vs decode {pd:.2e})")

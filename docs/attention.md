@@ -108,11 +108,13 @@ Heavily compressed attention is also tagged to the [DeepSeek-V4 docs](https://hu
 
 ![MSA architecture](assets/msa.png)
 
-MiniMax sparse attention is a GQA-based block-sparse self-attention. A cheap index branch runs one index query per GQA group against a single shared index key head, block-max-pools those scores into per-block scores, and top-k selects a few KV blocks per group. The sparse branch then runs ordinary GQA attention, but only over the keys gathered from the selected blocks — so each query attends to at most `top_k * block_size` keys instead of the whole sequence.
+MiniMax sparse attention follows [MiniMax Sparse Attention](https://arxiv.org/abs/2606.13392). It is a GQA-based block-sparse self-attention: a cheap index branch runs one index query per GQA group against a single shared index key head, block-max-pools token scores into per-block scores, always keeps the query's local block, and uses the remaining budget for top-k block selection. The main branch then runs exact GQA attention only over tokens gathered from those selected blocks, so each query attends to at most `top_k * block_size` keys instead of the whole sequence.
+
+The implementation keeps the paper's separation between routing and attention: index scores choose blocks, but they are not added as a bias to the main attention logits. Because hard top-k routing is not differentiable, the module exposes `kl_alignment_loss(...)` to train the index branch against the group-averaged main-branch attention distribution on the selected token support, with detached teacher and hidden-state inputs.
 
 - Implementation: [`msa.py`](../src/components/attention/msa.py)
 - Config: [`msa.yaml`](../configs/attention/msa.yaml)
-- Use when: you want long-context attention that keeps GQA's KV savings and adds learned block sparsity, picking which KV blocks each query reads instead of reading them all.
+- Use when: you want long-context attention that keeps GQA's KV savings and adds learned block sparsity, picking which KV blocks each query reads instead of reading them all. For training, add the returned KL alignment term to the language-modeling loss.
 
 ## Model compatibility
 
