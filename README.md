@@ -63,6 +63,8 @@ The first cut of MSA (minimax sparse attention) was close to the paper but not e
 
 ![MSA old vs paper-aligned training loss](assets/msa_paper_compare_loss.png)
 
+![MSA old vs paper-aligned eval metrics](assets/msa_paper_compare_eval.png)
+
 | metric | old (`2d018af`) | new (`e1a3421`) | Δ new−old |
 |--------|----------------:|----------------:|----------:|
 | eval loss | 2.484 | 2.571 | +0.087 |
