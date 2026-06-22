@@ -353,6 +353,12 @@ class TrainingTUI:
         line = f"{ts}  {msg}"
         with self._lock:
             self._events.append(line)
+        # logf's closed after __exit__ and the live display is gone, so just
+        # dump late events (like the hf push result) to the real terminal
+        # instead of blowing up on a closed file.
+        if self._logf.closed:
+            print(line, file=self._orig_stdout, flush=True)
+            return
         self._logf.write(line + "\n")
         self._logf.flush()
 

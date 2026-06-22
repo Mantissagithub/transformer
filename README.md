@@ -57,6 +57,32 @@ No trainer or builder edits needed.
 
 Plus: bf16/fp16 autocast, gradient accumulation, `torch.compile`, DDP/FSDP, HF Hub push, KV-cache `.generate()` across every attention variant, Rich TUI.
 
+## MSA paper-alignment: old vs new
+
+The first cut of MSA (minimax sparse attention) was close to the paper but not exact. [`fix(attention): align msa with paper`](../../commit/e1a3421) corrected it. To check the fix was actually worth it I trained both versions on the same footing — MeetingBank causal summarization, 20 epochs, batch 8, fp32, lr 1e-4, identical seed/data — and evaluated the final checkpoints on the validation split (core metrics over 100 batches, ROUGE/BLEU over 16 generated summaries).
+
+![MSA old vs paper-aligned training loss](assets/msa_paper_compare_loss.png)
+
+| metric | old (`2d018af`) | new (`e1a3421`) | Δ new−old |
+|--------|----------------:|----------------:|----------:|
+| eval loss | 2.484 | 2.571 | +0.087 |
+| perplexity | 11.99 | 13.08 | +1.09 |
+| token acc | 0.518 | 0.502 | −0.017 |
+| top-5 acc | 0.744 | 0.732 | −0.012 |
+| ROUGE-1 | 0.084 | **0.177** | +0.093 |
+| ROUGE-2 | 0.050 | **0.102** | +0.052 |
+| ROUGE-L | 0.083 | **0.173** | +0.090 |
+| BLEU | 2.20 | **6.77** | +4.58 |
+| eval tok/s | 7186 | 7278 | +92 |
+
+The new implementation is the one from the official MiniMax tech report; the old one was my own approximation of it. Two things changed in `msa.py`, and both are about dropping my shortcuts in favour of what the report actually specifies:
+
+1. **how the block selector gets trained.** my old version kept hard top-k for the forward pass but added the index branch's block log-probs straight onto the sparse attention logits (`block_score_bias`), purely so `w_iq`/`w_ik` would get gradient from the LM loss. it works, but it contaminates the attention the model actually uses — every value ends up weighted by a blend of real query-key affinity and a coarse block-level score. the report doesn't do that. the new version detaches the index branch entirely, keeps the forward logits pure `q·k`, and trains the selector with a separate KL loss (`kl_alignment_loss`) that matches the index distribution to the full attention's. the selector learns to *predict* which blocks real attention wants instead of leaking into it.
+
+2. **the local block is now mandatory.** old top-k just took the k highest-scoring blocks, so the block containing the query itself could get dropped when the index scores were noisy. the new one reserves a slot for the local block and fills the rest with the best non-local blocks, exactly as in the report — and for a decoder the most recent tokens are the ones you can least afford to miss.
+
+with that, the numbers make sense. under teacher forcing the old score-bias acts like a mild prior: the gold token is handed over at every step, nothing goes off the rails, and the extra bias even nudges perplexity slightly lower — which is why old looks a hair better on eval loss / ppl / token accuracy. but that regime never stresses the selector. the moment you generate free-running, the two fixes pay off: clean attention, a selector trained to mimic it, and guaranteed local context mean errors stop compounding. that's the ~2× ROUGE and ~3× BLEU jump (ROUGE-L 0.083 → 0.173, BLEU 2.2 → 6.8). throughput is identical, so it's a pure correctness win — the teacher-forced numbers that "favour" the old impl are an artifact of the crutch, not a real edge. judge attention on generation, not perplexity.
+
 ## Tests
 
 ```bash
