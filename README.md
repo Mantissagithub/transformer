@@ -57,6 +57,8 @@ No trainer or builder edits needed.
 
 Plus: bf16/fp16 autocast, gradient accumulation, `torch.compile`, DDP/FSDP, HF Hub push, KV-cache `.generate()` across every attention variant, Rich TUI.
 
+Evaluation metrics (loss, perplexity, token/top-5 accuracy, ROUGE, BLEU, throughput, latency, peak memory) — what they measure, why they matter, and how they're computed — are documented in [`docs/metrics.md`](docs/metrics.md).
+
 ## MSA paper-alignment: old vs new
 
 The first cut of MSA (minimax sparse attention) was close to the paper but not exact. [`fix(attention): align msa with paper`](../../commit/e1a3421) corrected it. To check the fix was actually worth it I trained both versions on the same footing — MeetingBank causal summarization, 20 epochs, batch 8, fp32, lr 1e-4, identical seed/data — and evaluated the final checkpoints on the validation split (core metrics over 100 batches, ROUGE/BLEU over 16 generated summaries).
