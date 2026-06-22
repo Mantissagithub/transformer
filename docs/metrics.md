@@ -22,7 +22,9 @@ Notation used below: $N$ non-pad target tokens, vocabulary size $V$, logits $z_{
 
 **Formula.**
 
-$$\mathcal{L} = -\frac{1}{N}\sum_{i=1}^{N} \log p_\theta(y_i \mid x_{<i}), \qquad p_\theta(y_i\mid x_{<i}) = \mathrm{softmax}(z_i)_{y_i}$$
+```math
+L = -\frac{1}{N}\sum_{i=1}^{N} \log p_\theta(y_i \mid x_{\lt i}), \qquad p_\theta(y_i\mid x_{\lt i}) = \mathrm{softmax}(z_i)_{y_i}
+```
 
 Padding positions are excluded via `ignore_index`, and the repo sums the loss then divides by the real token count $N$ (`reduction="sum"` / `tokens`) so that variable-length batches are weighted by tokens, not by sequence.
 
@@ -51,9 +53,11 @@ print(round(eval_loss, 4))   # 0.2132
 
 **Formula.**
 
-$$\mathrm{PPL} = \exp(\mathcal{L})$$
+```math
+\mathrm{PPL} = \exp(\mathcal{L})
+```
 
-The repo clamps to infinity when $\mathcal{L} > 88$ to avoid `exp` overflow on a diverged run.
+The repo clamps to infinity when $`\mathcal{L} > 88`$ to avoid `exp` overflow on a diverged run.
 
 ```python
 import math
@@ -72,7 +76,9 @@ print(round(ppl, 4))   # 1.2376
 
 **Formula.**
 
-$$\mathrm{Acc}_{1} = \frac{1}{N}\sum_{i=1}^{N} \mathbb{1}\!\left[\arg\max_v z_{i,v} = y_i\right]$$
+```math
+\mathrm{Acc}_{1} = \frac{1}{N}\sum_{i=1}^{N} \mathbb{1}\!\left[\arg\max_v z_{i,v} = y_i\right]
+```
 
 ```python
 import torch
@@ -89,11 +95,13 @@ print(acc)   # 1.0
 
 **What.** Fraction of positions where the gold token is among the model's 5 highest-logit tokens.
 
-**Why.** Top-1 is harsh — there are often several reasonable next tokens. Top-5 measures whether the model is "in the right neighbourhood", which correlates better with how sampling/beam decoding behaves. Higher is better. (The repo uses $k=\min(5, V)$ so it's safe on tiny vocabularies.)
+**Why.** Top-1 is harsh — there are often several reasonable next tokens. Top-5 measures whether the model is "in the right neighbourhood", which correlates better with how sampling/beam decoding behaves. Higher is better. (The repo uses $`k=\min(5, V)`$ so it's safe on tiny vocabularies.)
 
 **Formula.**
 
-$$\mathrm{Acc}_{5} = \frac{1}{N}\sum_{i=1}^{N} \mathbb{1}\!\left[y_i \in \mathrm{top\text{-}5}(z_i)\right]$$
+```math
+\mathrm{Acc}_{5} = \frac{1}{N}\sum_{i=1}^{N} \mathbb{1}\!\left[y_i \in \mathrm{top\text{-}5}(z_i)\right]
+```
 
 ```python
 import torch
@@ -115,7 +123,9 @@ print(hit.float().mean().item())   # 1.0
 
 **Formula.** For ROUGE-N with reference and candidate n-gram multisets, with precision $P$ and recall $R$:
 
-$$R = \frac{\sum_{g}\min(c_{\text{cand}}(g),\, c_{\text{ref}}(g))}{\sum_{g} c_{\text{ref}}(g)}, \quad P = \frac{\sum_{g}\min(c_{\text{cand}}(g),\, c_{\text{ref}}(g))}{\sum_{g} c_{\text{cand}}(g)}, \quad F_1 = \frac{2PR}{P+R}$$
+```math
+R = \frac{\sum_{g}\min(c_{\text{cand}}(g),\, c_{\text{ref}}(g))}{\sum_{g} c_{\text{ref}}(g)}, \quad P = \frac{\sum_{g}\min(c_{\text{cand}}(g),\, c_{\text{ref}}(g))}{\sum_{g} c_{\text{cand}}(g)}, \quad F_1 = \frac{2PR}{P+R}
+```
 
 ROUGE-L replaces the n-gram count with the length of the longest common subsequence (LCS) between candidate and reference token sequences.
 
@@ -134,7 +144,7 @@ for k, v in scores.items():
 # rougeL 0.571
 ```
 
-Across a set, the repo averages each metric's f-measure over all examples: $\mathrm{ROUGE} = \frac{1}{M}\sum_{j=1}^{M} F_1^{(j)}$ for $M$ generated summaries.
+Across a set, the repo averages each metric's f-measure over all examples: $`\mathrm{ROUGE} = \frac{1}{M}\sum_{j=1}^{M} F_1^{(j)}`$ for $M$ generated summaries.
 
 ---
 
@@ -144,9 +154,11 @@ Across a set, the repo averages each metric's f-measure over all examples: $\mat
 
 **Why.** Precision-leaning counterpart to ROUGE (did the summary avoid saying things that aren't in the reference). It's the most sensitive of the text metrics to fluency and phrasing, and often the first to move when generation quality changes. Higher is better.
 
-**Formula.** With modified n-gram precisions $p_n$, weights $w_n = 1/4$, candidate length $c$, reference length $r$:
+**Formula.** With modified n-gram precisions $p_n$, weights $`w_n = 1/4`$, candidate length $c$, reference length $r$:
 
-$$\mathrm{BLEU} = \underbrace{\min\!\left(1,\, e^{1 - r/c}\right)}_{\text{brevity penalty}} \cdot \exp\!\left(\sum_{n=1}^{4} w_n \log p_n\right)$$
+```math
+\mathrm{BLEU} = \underbrace{\min\!\left(1,\, e^{1 - r/c}\right)}_{\text{brevity penalty}} \cdot \exp\!\left(\sum_{n=1}^{4} w_n \log p_n\right)
+```
 
 ```python
 # pip install sacrebleu
@@ -169,7 +181,9 @@ print(round(bleu.score, 2))   # 16.52
 
 **Formula.**
 
-$$\text{tok/s} = \frac{\text{tokens processed}}{\text{elapsed seconds}}$$
+```math
+\text{tok/s} = \frac{\text{tokens processed}}{\text{elapsed seconds}}
+```
 
 ```python
 import time
@@ -188,9 +202,11 @@ print(round(n_tokens / elapsed))
 
 **Why.** Throughput hides batching effects; per-call latency is what a latency-bound serving path cares about. Lower is better.
 
-**Formula.** For per-batch times $t_1,\dots,t_B$:
+**Formula.** For per-batch times $`t_1,\dots,t_B`$:
 
-$$\overline{t}_{\text{ms}} = \frac{1000}{B}\sum_{b=1}^{B} t_b$$
+```math
+\overline{t}_{\text{ms}} = \frac{1000}{B}\sum_{b=1}^{B} t_b
+```
 
 ```python
 import time, torch
@@ -216,7 +232,9 @@ def timed_forward(model, batch, device):
 
 **Formula.**
 
-$$\text{peak MB} = \frac{\max_t \text{bytes allocated}(t)}{10^{6}}$$
+```math
+\text{peak MB} = \frac{\max_t \text{bytes allocated}(t)}{10^{6}}
+```
 
 ```python
 import torch
