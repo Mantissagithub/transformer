@@ -1,0 +1,36 @@
+# @package _global_
+# kda is recurrent and causal, so meetingbank is packed as transcript followed
+# by summary and only the summary continuation contributes to the loss.
+defaults:
+  - override /attention: kda
+  - override /feedforward: swiglu
+  - override /normalization: rmsnorm
+  - override /positional: rope
+  - override /connection: residual
+  - override /optimizer: adamw
+  - override /data: meetingbank
+
+experiment_name: meeting_summarization_kda
+
+model:
+  kind: causal_lm
+  tie_embeddings: true
+  # this holds the transcript, summary, and their control tokens together.
+  max_seq_len: 768
+
+attention:
+  n_heads: 8
+  head_dim: 64
+
+positional:
+  dropout: 0.0
+
+data:
+  mode: causal
+
+training:
+  # the exact recurrence is memory-heavy in training, so accumulation keeps
+  # the effective batch at eight without holding eight sequences at once.
+  batch_size: 1
+  gradient_accumulation_steps: 8
+  ckpt_basename: meeting_model_kda

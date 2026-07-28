@@ -1,6 +1,6 @@
 # @package _global_
 # decoder-only training for meeting summarization. used by attention variants
-# that don't support encoder-decoder cross-attn (csa, hca, mla). the meetingbank
+# that don't support encoder-decoder cross-attn (csa, hca, mla, msa, kda). the meetingbank
 # dataset is run in `causal` mode: each example is laid out as
 # [BOS] transcript [SEP] summary [EOS] and loss is scored only on the summary
 # continuation (the prefix is masked out via ignore_index=pad_id).

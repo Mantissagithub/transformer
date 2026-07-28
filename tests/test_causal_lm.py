@@ -166,6 +166,20 @@ def test_kv_cache_parity_mla():
     _parity_check(cfg)
 
 
+def test_kv_cache_parity_kda():
+    # rope stays identity at the embedding, so kda owns recency and position.
+    cfg = _small_cfg()
+    cfg.attention = OmegaConf.create({
+        "name": "kda",
+        "n_heads": 4,
+        "head_dim": 8,
+        "conv_size": 4,
+        "gate_lower_bound": -5.0,
+        "norm_eps": 1e-5,
+    })
+    _parity_check(cfg, atol=1e-5)
+
+
 def test_generate_with_eos_and_no_temperature():
     cfg = _small_cfg()
     model = build_causal_lm(cfg).eval()

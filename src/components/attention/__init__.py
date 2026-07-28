@@ -9,4 +9,13 @@ from . import csa  # noqa: F401
 from . import hca  # noqa: F401
 from . import mla  # noqa: F401
 from . import msa  # noqa: F401
-from .kv_cache import KVCache, SlidingKVCache, CSACache, HCACache, MLACache, MSACache  # noqa: F401
+from . import kda  # noqa: F401
+from .kv_cache import (  # noqa: F401
+    CSACache,
+    HCACache,
+    KDACache,
+    KVCache,
+    MLACache,
+    MSACache,
+    SlidingKVCache,
+)

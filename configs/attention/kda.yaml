@@ -1,0 +1,6 @@
+name: kda
+n_heads: 4
+head_dim: 16
+conv_size: 4
+gate_lower_bound: -5.0
+norm_eps: 1.0e-5

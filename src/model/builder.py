@@ -47,6 +47,7 @@ ATTENTION_CAPABILITIES: dict[str, dict[str, bool]] = {
     "hca":            {"cross_attn": False, "bidirectional": False},
     "mla":            {"cross_attn": False, "bidirectional": True},
     "msa":            {"cross_attn": False, "bidirectional": False},
+    "kda":            {"cross_attn": False, "bidirectional": False},
 }
 
 

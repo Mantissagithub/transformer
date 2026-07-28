@@ -191,3 +191,18 @@ class MSACache:
 
     def position(self) -> int:
         return self.total_seen
+
+
+class KDACache:
+    def __init__(self) -> None:
+        # the recurrent matrix stays fixed while the token count grows.
+        self.recurrent_state: Optional[torch.Tensor] = None
+
+        # short convolution only needs its last kernel_size - 1 inputs.
+        self.q_history: Optional[torch.Tensor] = None
+        self.k_history: Optional[torch.Tensor] = None
+        self.v_history: Optional[torch.Tensor] = None
+        self.total_seen = 0
+
+    def position(self) -> int:
+        return self.total_seen

@@ -2,7 +2,7 @@
 
 This page keeps the attention family in one place. Each variant has its own architecture diagram, paper tag, local implementation/config links, and a short note on when to use it.
 
-The diagrams use a black-canvas explainer style: token tensors, projection boxes, per-head lanes, attention heatmaps, and a bottom formula strip. They are exported as PNG assets generated from HTML-style layouts.
+The diagrams use a black-canvas explainer style: token tensors, projection boxes, per-head lanes, attention heatmaps, and a bottom formula strip. They are exported as image assets from HTML-style layouts.
 
 ## `mha`
 
@@ -116,8 +116,25 @@ The implementation keeps the paper's separation between routing and attention: i
 - Config: [`msa.yaml`](../configs/attention/msa.yaml)
 - Use when: you want long-context attention that keeps GQA's KV savings and adds learned block sparsity, picking which KV blocks each query reads instead of reading them all. For training, add the returned KL alignment term to the language-modeling loss.
 
+## `kda`
+
+![KDA architecture](assets/kda.svg)
+
+Kimi Delta Attention comes from [Kimi Linear](https://arxiv.org/abs/2510.26692), with the two changes used by [Kimi K3](https://github.com/MoonshotAI/Kimi-K3/blob/main/k3_tech_report.pdf): lower-bounded channel decay and a full-rank output gate.
+
+The input first splits into q, k, and v projections. Each branch runs through a causal depthwise convolution and SiLU; q and k are then L2-normalized. A separate low-rank branch produces one decay value for every key channel, while beta decides how strongly the current key-value pair should rewrite memory. The state update is the useful bit: decay the old matrix, read what it currently predicts for k, then write only the prediction error. Each head therefore carries one fixed `head_dim × head_dim` state instead of a token-by-token KV cache.
+
+K3 bounds the log-decay with `g = -5 sigmoid(exp(A) z)` and uses `alpha = exp(g)`. This keeps every step's log-decay inside `(-5, 0)`. After reading the updated state with q, the implementation applies head-wise RMSNorm, a full-rank sigmoid gate from the original input, and the output projection.
+
+This first version is the exact recurrent reference. It is differentiable and uses the same path for training, prefill, and decode, but it does not include the paper's chunkwise UT algorithm or a FlashKDA kernel yet. That makes it easy to check and slower to train on long sequences.
+
+- Implementation: [`kda.py`](../src/components/attention/kda.py)
+- Config: [`kda.yaml`](../configs/attention/kda.yaml)
+- Training config: [`meeting_summarization_kda.yaml`](../configs/experiment/meeting_summarization_kda.yaml)
+- Use when: you want to experiment with K3-style finite-state attention and constant-size decode memory. Run it as a causal LM with `positional=rope`; RoPE stays identity here, so KDA owns position and recency as intended.
+
 ## Model compatibility
 
 The encoder-decoder path needs attention modules that support cross-attention and bidirectional encoder attention. In this repo, `mha`, `mqa`, `gqa`, `gqa_rope`, `sliding_window`, `sliding_gqa`, and `gemma3_hybrid` satisfy that path.
 
-`csa`, `hca`, `mla`, and `msa` are self-attention-only variants and should run through the causal-LM path. The builder enforces this split so an experiment does not silently train with the wrong topology.
+`csa`, `hca`, `mla`, `msa`, and `kda` are self-attention-only variants and should run through the causal-LM path. The builder enforces this split so an experiment does not silently train with the wrong topology.
