@@ -59,11 +59,9 @@ Plus: bf16/fp16 autocast, gradient accumulation, `torch.compile`, DDP/FSDP, HF H
 
 Evaluation metrics (loss, perplexity, token/top-5 accuracy, ROUGE, BLEU, throughput, latency, peak memory) — what they measure, why they matter, and how they're computed — are documented in [`docs/metrics.md`](docs/metrics.md).
 
-## KDA: the 534-hour run was an implementation bug
+## KDA: latest implementation
 
-The first Kimi Delta Attention run used the recurrence literally in Python: one state update per token, per layer. At 768 tokens that meant thousands of serial CUDA launches for every batch. The progress display eventually estimated 534 hours. That was not KDA being inherently unusable; it was the wrong execution path.
-
-The CUDA implementation now uses FLA's chunkwise KDA kernel while keeping the exact recurrence as the CPU reference. The fresh 20-epoch MeetingBank run finished all 12,920 optimizer updates in about one hour on the local RTX 4060 Laptop GPU. It used bf16, physical batch size 1, and eight-step gradient accumulation for an effective batch size of 8.
+The latest Kimi Delta Attention implementation uses FLA's chunkwise KDA kernel on CUDA while keeping the exact recurrence as the CPU reference. The 20-epoch MeetingBank run finished all 12,920 optimizer updates in about one hour on the local RTX 4060 Laptop GPU. It used bf16, physical batch size 1, and eight-step gradient accumulation for an effective batch size of 8.
 
 ![KDA training loss](docs/assets/kda_training_loss.svg)
 

@@ -153,11 +153,9 @@ The CUDA path keeps q, k, and v in bf16 so the tensor-core kernels are actually 
 
 `flash-linear-attention==0.5.0` is pinned because that version gives this repo the training-ready KDA kernel without replacing its Transformers and Tokenizers dependency stack.
 
-### measured training cost
+### training runtime
 
-The original Python recurrence launched 768 serial updates per layer and managed only about 320 tokens/s on the local RTX 4060. One optimizer update took roughly 19.2 seconds, which put the full run near 69 hours.
-
-With the chunkwise kernel, 50 real optimizer updates took 18.9 seconds including model and dataset startup, or about 0.38 seconds per update end to end. The completed 20-epoch run was faster once warm: all 12,920 optimizer updates finished in about one hour wall-clock, with 59m 46s between the first and last logged loss. That works out to roughly 0.28 seconds per optimizer update and about a 69× improvement over the Python recurrence.
+The latest implementation uses the chunkwise CUDA kernel. The completed 20-epoch run finished all 12,920 optimizer updates in about one hour wall-clock, with 59m 46s between the first and last logged loss. That works out to roughly 0.28 seconds per optimizer update.
 
 The config uses batch size 1 with eight accumulated microbatches, so the effective batch is still eight. Progress and scheduler length are counted in optimizer updates: `floor(5169 / 8) × 20 = 12,920`, not 103,380 microbatches.
 
@@ -165,7 +163,7 @@ The config uses batch size 1 with eight accumulated microbatches, so the effecti
 
 ![KDA training loss](assets/kda_training_loss.svg)
 
-This is the exact unsmoothed TensorBoard series from the fresh run, not the aborted slow runs that share the same log directory. All 12,920 raw points are also available as [`kda_training_loss.csv`](assets/kda_training_loss.csv). The last training loss was 1.3462 and the minimum logged training loss was 1.2534.
+This is the exact unsmoothed TensorBoard series from the completed run. All 12,920 raw points are also available as [`kda_training_loss.csv`](assets/kda_training_loss.csv). The last training loss was 1.3462 and the minimum logged training loss was 1.2534.
 
 Training loss alone does not pick the checkpoint. The run saved epochs 0, 4, 8, 12, 16, and 19, so each of those six was evaluated over the full 861-batch MeetingBank validation loader:
 
