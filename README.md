@@ -59,13 +59,21 @@ Plus: bf16/fp16 autocast, gradient accumulation, `torch.compile`, DDP/FSDP, HF H
 
 Evaluation metrics (loss, perplexity, token/top-5 accuracy, ROUGE, BLEU, throughput, latency, peak memory) — what they measure, why they matter, and how they're computed — are documented in [`docs/metrics.md`](docs/metrics.md).
 
-## KDA: latest implementation
+## Experiment logbook
 
-The latest Kimi Delta Attention implementation uses FLA's chunkwise KDA kernel on CUDA while keeping the exact recurrence as the CPU reference. The 20-epoch MeetingBank run finished all 12,920 optimizer updates in about one hour on the local RTX 4060 Laptop GPU. It used bf16, physical batch size 1, and eight-step gradient accumulation for an effective batch size of 8.
+### 2026-07-29 — Kimi Delta Attention
+
+Added Kimi Delta Attention with FLA's chunkwise KDA kernel on CUDA, while keeping the exact recurrence as the CPU reference. The 20-epoch MeetingBank run finished all 12,920 optimizer updates in about one hour on the local RTX 4060 Laptop GPU. It used bf16, physical batch size 1, and eight-step gradient accumulation for an effective batch size of 8.
+
+#### training run
 
 ![KDA training loss](docs/assets/kda_training_loss.svg)
 
-This is the unsmoothed `train/loss` series from the completed run. The final logged training loss was 1.3462, but the final checkpoint was not the best one. I evaluated every checkpoint that the run actually saved on the full MeetingBank validation split:
+This is the unsmoothed `train/loss` series from the completed run. The final logged training loss was 1.3462.
+
+#### checkpoint selection
+
+The final checkpoint was not the best one, so I evaluated every checkpoint that the run actually saved on the full MeetingBank validation split:
 
 | saved epoch | optimizer step | validation loss |
 |---:|---:|---:|
@@ -79,6 +87,8 @@ This is the unsmoothed `train/loss` series from the completed run. The final log
 Epoch 4 is the checkpoint on the Hub. Later epochs still raise token accuracy a little, but validation cross-entropy gets worse, so uploading epoch 19 just because it was last would hide the overfitting.
 
 Future runs do this selection while training: validation runs halfway through every epoch and again at epoch end, and `*_best.pt` is overwritten only when `current_val_loss < best_val_loss`. That keeps one useful checkpoint on disk instead of another 354 MiB file every few epochs.
+
+#### benchmark
 
 The published checkpoint was then evaluated through the same [`benchmark_hf_collection.py`](scripts/benchmark_hf_collection.py) path used for the other attention models: core metrics over the complete 861-batch validation loader and generation metrics over 128 greedy summaries.
 
