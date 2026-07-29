@@ -763,7 +763,7 @@ def _merge_results(existing: list[BenchmarkResult], incoming: list[BenchmarkResu
 
 def _write_summary_csv(path: Path, results: list[BenchmarkResult]) -> None:
     with path.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=RESULT_FIELDS)
+        writer = csv.DictWriter(f, fieldnames=RESULT_FIELDS, lineterminator="\n")
         writer.writeheader()
         for result in results:
             row = asdict(result)
@@ -788,11 +788,12 @@ VARIANT_COLORS: dict[str, str] = {
     "csa":            "#CCB974",
     "hca":            "#64B5CD",
     "msa":            "#E63946",
+    "kda":            "#7B2CBF",
 }
 _FALLBACK_COLOR = "#444444"
 
 # canonical collection URL + inline HF logo used in the report's Models section.
-COLLECTION_URL = "https://huggingface.co/collections/Pradheep1647/transformer-lab"
+COLLECTION_URL = "https://huggingface.co/collections/Pradheep1647/transformer-lab-6a07fe3185f5728e217997e0"
 HF_LOGO = (
     '<img src="https://huggingface.co/front/assets/huggingface_logo-noborder.svg" '
     'width="16" alt="🤗"/>'
@@ -806,6 +807,8 @@ def _variant_key(repo_id: str) -> str:
         name = name[len("run_"):]
     if "-meetingbank-" in name:
         name = name.split("-meetingbank-", 1)[0]
+    if name == "meeting_summarization_kda":
+        return "kda"
     return name
 
 
@@ -1191,6 +1194,8 @@ def _write_readme(path: Path, results: list[BenchmarkResult], settings: dict[str
     dec_results = [r for r in results if kinds.get(r.repo_id) == "causal_lm"]
     enc_ok = [r for r in ok if kinds.get(r.repo_id) != "causal_lm"]
     dec_ok = [r for r in ok if kinds.get(r.repo_id) == "causal_lm"]
+    precisions = sorted({str(result.dtype) for result in ok if result.dtype})
+    precision_label = " / ".join(precisions) or str(settings.get("precision", "fp32"))
 
     lines = [
         "# Transformer Lab — Attention Benchmark",
@@ -1204,7 +1209,7 @@ def _write_readme(path: Path, results: list[BenchmarkResult], settings: dict[str
         f"**Setup** — dataset `{settings.get('dataset', 'meetingbank')}` / "
         f"`{settings.get('split', 'validation')}` · generation samples "
         f"`{settings.get('generation_samples', '?')}` · precision "
-        f"`{settings.get('precision', 'fp32')}` · "
+        f"`{precision_label}` by checkpoint · "
         f"[model collection]({COLLECTION_URL}).",
         "",
     ]
@@ -1264,7 +1269,7 @@ def _write_readme(path: Path, results: list[BenchmarkResult], settings: dict[str
         "> **Why this family scores much lower on generation.** Encoder–decoder models get "
         "cross-attention that aligns the decoder directly to the source transcript, making the "
         "copy-heavy summarization task far easier; decoder-only models must learn that purely "
-        "in-context. All three here also compress or sparsify the KV cache, discarding source "
+        "in-context. These models also compress or sparsify the KV cache, discarding source "
         "detail that copying needs, and they show the classic teacher-forcing gap — msa reaches "
         "the lowest perplexity of any model yet near-zero BLEU, because low next-token loss does "
         "not survive free-running generation. Compare these variants against each other, not "
@@ -1297,7 +1302,7 @@ def _write_readme(path: Path, results: list[BenchmarkResult], settings: dict[str
         lines.extend(warn)
         lines.append("")
 
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines).rstrip() + "\n")
 
 
 def _attention_variant_label(repo_id: str) -> str:
@@ -1317,6 +1322,7 @@ def _attention_variant_label(repo_id: str) -> str:
         "hca": "hca (heavily compressed attention)",
         "mla": "mla (multi-head latent attention)",
         "msa": "msa (minimax sparse attention)",
+        "meeting_summarization_kda": "kda (Kimi delta attention)",
     }
     return labels.get(variant, variant.replace("_", " "))
 

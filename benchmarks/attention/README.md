@@ -2,13 +2,13 @@
 
 Attention variants trained on MeetingBank, grouped into the two model families they were trained in — **encoder–decoder transformers** and **decoder-only (causal-LM)** models. Because the families optimise different objectives, the quality metrics are benchmarked **separately per family**; only the cross-cutting views (training loss, throughput, and the speed/quality overview) place them on a shared axis.
 
-**Setup** — dataset `meetingbank` / `validation` · generation samples `128` · precision `fp32` · [model collection](https://huggingface.co/collections/Pradheep1647/transformer-lab).
+**Setup** — dataset `meetingbank` / `validation` · generation samples `128` · precision `bf16 / fp32` by checkpoint · [model collection](https://huggingface.co/collections/Pradheep1647/transformer-lab-6a07fe3185f5728e217997e0).
 
 ## Training loss
 
 ![Training loss](assets/loss_curves.png)
 
-Training loss vs. step, pulled from each model's `loss_curve.csv` on the Hub and exponentially smoothed. **Solid** lines are decoder-only / causal-LM models (csa, hca, msa); **dashed** lines are encoder–decoder transformers (gqa, gqa_rope, mha, mqa, sliding_gqa). Shown together for reference, but the two families optimise different objectives so absolute loss is not directly comparable.
+Training loss vs. step, pulled from each model's `loss_curve.csv` on the Hub and exponentially smoothed. **Solid** lines are decoder-only / causal-LM models (csa, hca, kda, msa); **dashed** lines are encoder–decoder transformers (gqa, gqa_rope, mha, mqa, sliding_gqa). Shown together for reference, but the two families optimise different objectives so absolute loss is not directly comparable.
 
 ## Throughput
 
@@ -57,12 +57,12 @@ Summary-generation overlap against reference summaries (ROUGE-L and BLEU).
 
 ## Decoder-only (causal-LM)
 
-> **Why this family scores much lower on generation.** Encoder–decoder models get cross-attention that aligns the decoder directly to the source transcript, making the copy-heavy summarization task far easier; decoder-only models must learn that purely in-context. All three here also compress or sparsify the KV cache, discarding source detail that copying needs, and they show the classic teacher-forcing gap — msa reaches the lowest perplexity of any model yet near-zero BLEU, because low next-token loss does not survive free-running generation. Compare these variants against each other, not against the encoder–decoder family above.
+> **Why this family scores much lower on generation.** Encoder–decoder models get cross-attention that aligns the decoder directly to the source transcript, making the copy-heavy summarization task far easier; decoder-only models must learn that purely in-context. These models also compress or sparsify the KV cache, discarding source detail that copying needs, and they show the classic teacher-forcing gap — msa reaches the lowest perplexity of any model yet near-zero BLEU, because low next-token loss does not survive free-running generation. Compare these variants against each other, not against the encoder–decoder family above.
 
 **Highlights**
 
 - Lowest perplexity — **msa** (11.8).
-- Best generation overlap (ROUGE-L) — **csa** (0.155).
+- Best generation overlap (ROUGE-L) — **kda** (0.205).
 - Fastest generation — **hca** (166 tok/s).
 
 ### Evaluation quality
@@ -83,6 +83,7 @@ Summary-generation overlap against reference summaries (ROUGE-L and BLEU).
 | Attention Variant | Repo | Status | Loss | PPL | Tok Acc | ROUGE-L | BLEU | Tok/s | Gen tok/s |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|
 | msa (minimax sparse attention) | [`Pradheep1647/run_msa-meetingbank-bs8-e20-fp32-19`](https://huggingface.co/Pradheep1647/run_msa-meetingbank-bs8-e20-fp32-19) | ok | 2.466 | 11.78 | 0.5203 | 0.0803 | 2.506 | 2060 | 99.99 |
+| kda (Kimi delta attention) | [`Pradheep1647/meeting_summarization_kda-meetingbank-bs8-e20-bf16-4`](https://huggingface.co/Pradheep1647/meeting_summarization_kda-meetingbank-bs8-e20-bf16-4) | ok | 2.538 | 12.66 | 0.5497 | 0.2055 | 7.903 | 4789 | 92.86 |
 | csa (compressed sparse attention) | [`Pradheep1647/run_csa-meetingbank-bs8-e20-fp32-19`](https://huggingface.co/Pradheep1647/run_csa-meetingbank-bs8-e20-fp32-19) | ok | 3.388 | 29.61 | 0.4543 | 0.1547 | 4.631 | 2570 | 113.6 |
 | hca (heavily compressed attention) | [`Pradheep1647/run_hca-meetingbank-bs8-e20-fp32-19`](https://huggingface.co/Pradheep1647/run_hca-meetingbank-bs8-e20-fp32-19) | ok | 3.514 | 33.57 | 0.4417 | 0.08286 | 1.919 | 4119 | 166.2 |
 
@@ -90,7 +91,7 @@ Summary-generation overlap against reference summaries (ROUGE-L and BLEU).
 
 ## Models
 
-All checkpoints are published in the <img src="https://huggingface.co/front/assets/huggingface_logo-noborder.svg" width="16" alt="🤗"/> [transformer-lab collection](https://huggingface.co/collections/Pradheep1647/transformer-lab).
+All checkpoints are published in the <img src="https://huggingface.co/front/assets/huggingface_logo-noborder.svg" width="16" alt="🤗"/> [transformer-lab collection](https://huggingface.co/collections/Pradheep1647/transformer-lab-6a07fe3185f5728e217997e0).
 
 **Encoder–decoder**
 
@@ -103,6 +104,7 @@ All checkpoints are published in the <img src="https://huggingface.co/front/asse
 **Decoder-only**
 
 - <img src="https://huggingface.co/front/assets/huggingface_logo-noborder.svg" width="16" alt="🤗"/> **msa** [`Pradheep1647/run_msa-meetingbank-bs8-e20-fp32-19`](https://huggingface.co/Pradheep1647/run_msa-meetingbank-bs8-e20-fp32-19) (ok)
+- <img src="https://huggingface.co/front/assets/huggingface_logo-noborder.svg" width="16" alt="🤗"/> **kda** [`Pradheep1647/meeting_summarization_kda-meetingbank-bs8-e20-bf16-4`](https://huggingface.co/Pradheep1647/meeting_summarization_kda-meetingbank-bs8-e20-bf16-4) (ok)
 - <img src="https://huggingface.co/front/assets/huggingface_logo-noborder.svg" width="16" alt="🤗"/> **csa** [`Pradheep1647/run_csa-meetingbank-bs8-e20-fp32-19`](https://huggingface.co/Pradheep1647/run_csa-meetingbank-bs8-e20-fp32-19) (ok)
 - <img src="https://huggingface.co/front/assets/huggingface_logo-noborder.svg" width="16" alt="🤗"/> **hca** [`Pradheep1647/run_hca-meetingbank-bs8-e20-fp32-19`](https://huggingface.co/Pradheep1647/run_hca-meetingbank-bs8-e20-fp32-19) (ok)
 
@@ -110,4 +112,3 @@ All checkpoints are published in the <img src="https://huggingface.co/front/asse
 
 - replaced published tokenizer.json with local causal tokenizer fallback for Pradheep1647/run_csa-meetingbank-bs8-e20-fp32-19
 - replaced published tokenizer.json with local causal tokenizer fallback for Pradheep1647/run_hca-meetingbank-bs8-e20-fp32-19
-

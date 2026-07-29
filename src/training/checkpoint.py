@@ -12,6 +12,7 @@ def save_checkpoint(
     model: nn.Module,
     optimizers: List[Optimizer],
     global_step: int,
+    best_val_loss: float | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
@@ -20,6 +21,7 @@ def save_checkpoint(
             "model_state_dict": model.state_dict(),
             "optimizers": [opt.state_dict() for opt in optimizers],
             "global_step": global_step,
+            "best_val_loss": best_val_loss,
         },
         path,
     )
@@ -35,3 +37,7 @@ def load_checkpoint(path: Path, model: nn.Module, optimizers: List[Optimizer]) -
 
 def checkpoint_path(ckpt_dir: str, basename: str, epoch: int) -> Path:
     return Path(ckpt_dir) / f"{basename}{epoch:02d}.pt"
+
+
+def best_checkpoint_path(ckpt_dir: str, basename: str) -> Path:
+    return Path(ckpt_dir) / f"{basename}_best.pt"

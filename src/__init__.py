@@ -22,6 +22,9 @@ def _preload_torch_cuda_libs() -> None:
 
     for lib_dir in lib_dirs:
         for lib_path in sorted(lib_dir.glob("*.so*")):
+            # nvblas is a blas interposer, not a torch runtime dependency.
+            if lib_path.name.startswith("libnvblas.so"):
+                continue
             try:
                 ctypes.CDLL(str(lib_path), mode=ctypes.RTLD_GLOBAL)
             except OSError:

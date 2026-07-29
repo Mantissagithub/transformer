@@ -29,8 +29,8 @@ data:
   mode: causal
 
 training:
-  # the exact recurrence is memory-heavy in training, so accumulation keeps
-  # the effective batch at eight without holding eight sequences at once.
+  # chunk kda runs its tensor-core path in bf16 while keeping its state fp32.
+  precision: bf16
   batch_size: 1
   gradient_accumulation_steps: 8
   ckpt_basename: meeting_model_kda

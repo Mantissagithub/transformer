@@ -1,6 +1,6 @@
 ---
 library_name: pytorch
-license: apache-2.0
+license: mit
 datasets:
 - huuuyeah/meetingbank
 tags:
@@ -9,6 +9,7 @@ tags:
 - meeting-summarization
 - custom-code
 - attention-variant
+{model_index}
 ---
 
 # {model_title}
@@ -26,9 +27,12 @@ Custom PyTorch Transformer checkpoint trained on MeetingBank for meeting summari
 | Hidden size | `{d_model}` |
 | Heads | `{n_heads}` |
 | Batch size | `{batch_size}` |
+| Effective batch size | `{effective_batch_size}` |
 | Epochs | `{num_epochs}` |
 | Precision | `{precision}` |
 | Checkpoint | `{checkpoint_file}` |
+| Optimizer steps | `{training_steps}` |
+| Logged training time | `{logged_training_time}` |
 
 ## Architecture
 
@@ -42,6 +46,14 @@ Static architecture diagram generated from this run's `config.json`, including m
 
 Raw curve data is available in [`loss_curve.csv`](loss_curve.csv).
 
+The curve covers the complete training run. The uploaded checkpoint is the saved epoch with the lowest full-validation loss, not simply the last epoch.
+
+## Evaluation
+
+{evaluation_table}
+
+Core metrics use the full MeetingBank validation split. Generation metrics use the first 128 validation examples with greedy decoding.
+
 ## Available Models
 
 {available_models_table}
@@ -53,9 +65,7 @@ Raw curve data is available in [`loss_curve.csv`](loss_curve.csv).
 | `{checkpoint_file}` | PyTorch checkpoint containing `model_state_dict`, optimizer states, epoch, and global step. |
 | `config.json` | Training and architecture config converted from the Hydra run config. |
 | `{architecture_file}` | Architecture diagram generated from the saved model config, with block shapes and dimensions. |
-| `tokenizer.json` | MeetingBank transcript tokenizer alias for source inputs. |
-| `transcript_tokenizer.json` | Explicit MeetingBank transcript tokenizer. |
-| `summary_tokenizer.json` | MeetingBank summary tokenizer for target text. |
+{tokenizer_files}
 | `loss_curve.csv` | TensorBoard `train/loss` scalar export. |
 | `loss_curve.svg` | Static training-loss plot generated from `loss_curve.csv`. |
 

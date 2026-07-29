@@ -118,7 +118,9 @@ The implementation keeps the paper's separation between routing and attention: i
 
 ## `kda`
 
-![KDA architecture](assets/kda.svg)
+<img src="assets/kimi-linear-architecture.jpg" alt="Official Kimi Linear architecture with the KDA block expanded" width="720">
+
+*Official Kimi Linear architecture figure from [MoonshotAI/Kimi-Linear](https://github.com/MoonshotAI/Kimi-Linear/blob/master/figures/arch.png), © 2025 Moonshot AI, [MIT licensed](assets/kimi-linear-architecture.LICENSE). The lower-right panel is the KDA layer implemented here. The left side is Moonshot's hybrid stack; this repo's current experiment uses KDA in every attention layer instead of mixing KDA and MLA.*
 
 Kimi Delta Attention comes from [Kimi Linear](https://arxiv.org/abs/2510.26692), with the two changes used by [Kimi K3](https://github.com/MoonshotAI/Kimi-K3/blob/main/k3_tech_report.pdf): lower-bounded channel decay and a full-rank output gate.
 
@@ -126,7 +128,84 @@ The input first splits into q, k, and v projections. Each branch runs through a 
 
 K3 bounds the log-decay with `g = -5 sigmoid(exp(A) z)` and uses `alpha = exp(g)`. This keeps every step's log-decay inside `(-5, 0)`. After reading the updated state with q, the implementation applies head-wise RMSNorm, a full-rank sigmoid gate from the original input, and the output projection.
 
-This first version is the exact recurrent reference. It is differentiable and uses the same path for training, prefill, and decode, but it does not include the paper's chunkwise UT algorithm or a FlashKDA kernel yet. That makes it easy to check and slower to train on long sequences.
+For one head, the recurrence is:
+
+\[
+\bar{S}_t = \operatorname{Diag}(\alpha_t) S_{t-1}
+\]
+
+\[
+e_t = v_t - k_t^\top \bar{S}_t, \qquad
+S_t = \bar{S}_t + \beta_t k_t e_t^\top, \qquad
+o_t = q_t^\top S_t
+\]
+
+The error term matters. KDA does not blindly add every value to memory. It asks what the current state already predicts for the key and writes only what is missing.
+
+### execution paths
+
+| Path | Used for | What it does |
+| --- | --- | --- |
+| exact recurrence | CPU and correctness tests | walks tokens one at a time in PyTorch and keeps the state in fp32 |
+| chunkwise KDA | CUDA training | uses [`fla.ops.kda.chunk_kda`](https://github.com/fla-org/flash-linear-attention/blob/v0.5.0/fla/ops/kda/chunk.py) to process 64-token chunks with Triton while carrying the same fp32 state between chunks |
+
+The CUDA path keeps q, k, and v in bf16 so the tensor-core kernels are actually used. Decay values and the recurrent state stay in fp32. This is still the same recurrence, not an approximation with a different cache layout, so checkpoints move between the exact and chunkwise paths without conversion.
+
+`flash-linear-attention==0.5.0` is pinned because that version gives this repo the training-ready KDA kernel without replacing its Transformers and Tokenizers dependency stack.
+
+### measured training cost
+
+The original Python recurrence launched 768 serial updates per layer and managed only about 320 tokens/s on the local RTX 4060. One optimizer update took roughly 19.2 seconds, which put the full run near 69 hours.
+
+With the chunkwise kernel, 50 real optimizer updates took 18.9 seconds including model and dataset startup, or about 0.38 seconds per update end to end. The completed 20-epoch run was faster once warm: all 12,920 optimizer updates finished in about one hour wall-clock, with 59m 46s between the first and last logged loss. That works out to roughly 0.28 seconds per optimizer update and about a 69× improvement over the Python recurrence.
+
+The config uses batch size 1 with eight accumulated microbatches, so the effective batch is still eight. Progress and scheduler length are counted in optimizer updates: `floor(5169 / 8) × 20 = 12,920`, not 103,380 microbatches.
+
+### completed MeetingBank run
+
+![KDA training loss](assets/kda_training_loss.svg)
+
+This is the exact unsmoothed TensorBoard series from the fresh run, not the aborted slow runs that share the same log directory. All 12,920 raw points are also available as [`kda_training_loss.csv`](assets/kda_training_loss.csv). The last training loss was 1.3462 and the minimum logged training loss was 1.2534.
+
+Training loss alone does not pick the checkpoint. The run saved epochs 0, 4, 8, 12, 16, and 19, so each of those six was evaluated over the full 861-batch MeetingBank validation loader:
+
+| saved epoch | step | validation loss | perplexity | token accuracy |
+|---:|---:|---:|---:|---:|
+| 0 | 646 | 3.3420 | 28.2760 | 0.4379 |
+| **4** | **3,230** | **2.5381** | **12.6559** | **0.5497** |
+| 8 | 5,814 | 2.5980 | 13.4371 | 0.5646 |
+| 12 | 8,398 | 2.7164 | 15.1258 | 0.5697 |
+| 16 | 10,982 | 2.8413 | 17.1374 | 0.5725 |
+| 19 | 12,920 | 2.9069 | 18.2993 | 0.5737 |
+
+Epoch 4 wins on validation loss. The later checkpoints get slightly better at choosing the top token while becoming less calibrated overall, which is why token accuracy rises even as validation loss and perplexity get worse.
+
+The trainer now handles this during the run. It validates halfway through each epoch and at the end, logs `val/loss`, and overwrites one `*_best.pt` file only when `current_val_loss < best_val_loss`. Set `training.preload=best` to resume that checkpoint. The six-file table above describes this completed run before best-only saving was added.
+
+The selected epoch-4 checkpoint was then benchmarked through the same Hugging Face evaluation path as the other attention models. Core metrics use the full validation split; ROUGE and BLEU use the first 128 validation meetings with greedy generation.
+
+| metric | value |
+|---|---:|
+| validation loss | 2.5381 |
+| perplexity | 12.6559 |
+| token accuracy | 0.5497 |
+| top-5 accuracy | 0.7400 |
+| ROUGE-1 | 0.2556 |
+| ROUGE-2 | 0.0853 |
+| ROUGE-L | 0.2055 |
+| BLEU | 7.90 |
+| evaluation throughput | 4,789 tok/s |
+| generation throughput | 92.86 tok/s |
+| average forward latency | 13.17 ms |
+| peak CUDA memory | 189.5 MB |
+
+The model has 30,896,560 parameters and the checkpoint is 370.9 MB. The raw selection record is [`checkpoint_selection.json`](../benchmarks/kda/checkpoint_selection.json), the complete benchmark record is [`results.jsonl`](../benchmarks/kda/results.jsonl), and the published model is [`Pradheep1647/meeting_summarization_kda-meetingbank-bs8-e20-bf16-4`](https://huggingface.co/Pradheep1647/meeting_summarization_kda-meetingbank-bs8-e20-bf16-4).
+
+Run it without the dashboard or any startup prompt:
+
+```bash
+uv run python -m src.cli.train +experiment=meeting_summarization_kda training.tui=false
+```
 
 - Implementation: [`kda.py`](../src/components/attention/kda.py)
 - Config: [`kda.yaml`](../configs/attention/kda.yaml)

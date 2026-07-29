@@ -16,8 +16,8 @@
   "max_new_tokens": 0,
   "repo_count": 7,
   "started_at": "2026-05-17T17:21:42.654194+00:00",
-  "last_partial_update_at": "2026-06-01T08:29:20.552023+00:00",
+  "last_partial_update_at": "2026-07-28T23:28:59.197882+00:00",
   "last_partial_repo_ids": [
-    "Pradheep1647/run_msa-meetingbank-bs8-e20-fp32-19"
+    "Pradheep1647/meeting_summarization_kda-meetingbank-bs8-e20-bf16-4"
   ]
 }

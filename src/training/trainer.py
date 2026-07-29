@@ -1,17 +1,20 @@
 from contextlib import nullcontext
+import math
 from pathlib import Path
 import time
 from typing import Any, Dict
 
 import torch
+import torch.distributed as dist
 import torch.nn as nn
+import torch.nn.functional as F
 from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
 
 from src.model.builder import build_causal_lm, build_transformer
 from src.registry import DATASET, LOSS, OPTIMIZER, SCHEDULER
 
-from .checkpoint import checkpoint_path, load_checkpoint, save_checkpoint
+from .checkpoint import best_checkpoint_path, checkpoint_path, load_checkpoint, save_checkpoint
 from .distributed import DistEnv, init_distributed, wrap_model
 from .hf_push import push_checkpoint
 from .logging import build_logger
@@ -98,10 +101,11 @@ class Trainer:
         sched_kwargs = _strip_name(cfg.scheduler)
         len_loader = _try_len(self.data["train_loader"])
         max_steps = cfg.training.get("max_steps", 0)
+        accum = max(1, int(cfg.training.get("gradient_accumulation_steps", 1)))
         if max_steps and max_steps > 0:
             total_steps = int(max_steps)
         elif len_loader is not None:
-            total_steps = len_loader * cfg.training.num_epochs
+            total_steps = (len_loader // accum) * cfg.training.num_epochs
         else:
             total_steps = 100_000
         sched_kwargs.setdefault("total_steps", total_steps)
@@ -125,20 +129,30 @@ class Trainer:
             self.logger = _NullLogger()
         self.global_step = 0
         self.start_epoch = 0
+        self.best_val_loss = math.inf
         self._maybe_resume()
 
     def _maybe_resume(self) -> None:
         preload = self.cfg.training.get("preload")
         if not preload:
             return
-        path = checkpoint_path(
-            self.cfg.training.ckpt_dir,
-            self.cfg.training.ckpt_basename,
-            int(preload),
-        )
+        if str(preload) == "best":
+            path = best_checkpoint_path(
+                self.cfg.training.ckpt_dir,
+                self.cfg.training.ckpt_basename,
+            )
+        else:
+            path = checkpoint_path(
+                self.cfg.training.ckpt_dir,
+                self.cfg.training.ckpt_basename,
+                int(preload),
+            )
         state = load_checkpoint(path, _maybe_unwrap(self.model), self.optimizers)
         self.start_epoch = state["epoch"] + 1
         self.global_step = state["global_step"]
+        saved_best = state.get("best_val_loss")
+        if saved_best is not None:
+            self.best_val_loss = float(saved_best)
 
     def _step_optimizers(self) -> None:
         if self.scaler is not None:
@@ -189,6 +203,94 @@ class Trainer:
         logits = self.model(ids)
         return self.loss_fn(logits.view(-1, vocab), labels.view(-1))
 
+    def _validation_logits(self, batch) -> tuple[torch.Tensor, torch.Tensor]:
+        if self.kind == "causal_lm":
+            ids = batch["input_ids"].to(self.device)
+            labels = batch["labels"].to(self.device)
+            return self.model(ids), labels
+
+        src = batch["encoder_input"].to(self.device)
+        tgt = batch["decoder_input"].to(self.device)
+        src_mask = batch["encoder_mask"].to(self.device)
+        tgt_mask = batch["decoder_mask"].to(self.device)
+        labels = batch["label"].to(self.device)
+        model = _maybe_unwrap(self.model)
+        enc_out = model.encode(src, src_mask)
+        dec_out = model.decode(enc_out, src_mask, tgt, tgt_mask)
+        return model.project(dec_out), labels
+
+    def _validation_loss(self) -> float:
+        val_loader = self.data.get("val_loader")
+        if val_loader is None:
+            raise RuntimeError("validation loader is not configured")
+        was_training = self.model.training
+        self.model.eval()
+        pad_id = int(self.data["pad_token_id"])
+        totals = torch.zeros(2, device=self.device, dtype=torch.float64)
+
+        with torch.inference_mode():
+            for batch in val_loader:
+                with self._autocast():
+                    logits, labels = self._validation_logits(batch)
+                flat_labels = labels.reshape(-1)
+                totals[0] += F.cross_entropy(
+                    logits.float().reshape(-1, logits.shape[-1]),
+                    flat_labels,
+                    ignore_index=pad_id,
+                    reduction="sum",
+                ).double()
+                totals[1] += (flat_labels != pad_id).sum()
+
+        if self.dist_env.is_dist:
+            dist.all_reduce(totals, op=dist.ReduceOp.SUM)
+        if was_training:
+            self.model.train()
+        if totals[1].item() == 0:
+            raise RuntimeError("validation loader produced no scored tokens")
+        return float((totals[0] / totals[1]).item())
+
+    def _validate_and_save_best(
+        self,
+        *,
+        epoch: int,
+        tui: TrainingTUI | None,
+    ) -> Path | None:
+        val_loss = self._validation_loss()
+        if not self.dist_env.is_main:
+            return None
+
+        self.logger.scalar("val/loss", val_loss, self.global_step)
+        self.logger.flush()
+        improved = val_loss < self.best_val_loss
+        message = f"validation loss {val_loss:.4f}"
+        if not improved:
+            message += f" · best {self.best_val_loss:.4f}"
+            if tui is not None:
+                tui.event(message)
+            else:
+                print(message)
+            return None
+
+        self.best_val_loss = val_loss
+        path = best_checkpoint_path(
+            self.cfg.training.ckpt_dir,
+            self.cfg.training.ckpt_basename,
+        )
+        save_checkpoint(
+            path,
+            epoch=epoch,
+            model=_maybe_unwrap(self.model),
+            optimizers=self.optimizers,
+            global_step=self.global_step,
+            best_val_loss=self.best_val_loss,
+        )
+        message += f" · saved {path.name}"
+        if tui is not None:
+            tui.event(message)
+        else:
+            print(message)
+        return path
+
     def fit(self) -> None:
         cfg = self.cfg
         ckpt_dir = Path(cfg.training.ckpt_dir)
@@ -203,8 +305,9 @@ class Trainer:
         steps_per_epoch = len_loader if len_loader is not None else max(1, max_steps)
         total_steps = self.total_steps
         use_tui = bool(cfg.training.get("tui", True)) and self.dist_env.is_main
+        has_validation = self.data.get("val_loader") is not None
 
-        last_ckpt: Path | None = None
+        best_ckpt: Path | None = None
         if use_tui:
             tui = TrainingTUI(
                 experiment_name=self.experiment_name,
@@ -246,8 +349,12 @@ class Trainer:
                 _tok_accum = 0
                 _toks_per_sec = 0.0
                 _grad_norm = 0.0
-                is_last_epoch = (epoch == num_epochs - 1) or stop
-                save_every_n = cfg.training.get("save_every_n_epochs", 4)
+                checked_midpoint = False
+                midpoint = (
+                    len_loader // 2
+                    if has_validation and len_loader is not None and len_loader > 1
+                    else None
+                )
                 for step_in_epoch, batch in enumerate(iterator):
                     if self.kind == "causal_lm":
                         _tok_accum += batch["input_ids"].numel()
@@ -302,32 +409,47 @@ class Trainer:
                         elif hasattr(iterator, "set_postfix"):
                             iterator.set_postfix(loss=f"{loss_val:6.3f}")
 
+                        if (
+                            midpoint is not None
+                            and not checked_midpoint
+                            and step_in_epoch + 1 >= midpoint
+                        ):
+                            saved = self._validate_and_save_best(epoch=epoch, tui=tui)
+                            if saved is not None:
+                                best_ckpt = saved
+                            checked_midpoint = True
+
                         if max_steps and self.global_step >= max_steps:
                             stop = True
                             break
 
-                if self.dist_env.is_main:
+                if has_validation:
+                    saved = self._validate_and_save_best(epoch=epoch, tui=tui)
+                    if saved is not None:
+                        best_ckpt = saved
+                elif self.dist_env.is_main:
+                    save_every_n = cfg.training.get("save_every_n_epochs", 4)
+                    is_last_epoch = epoch == num_epochs - 1 or stop
                     if is_last_epoch or (save_every_n > 0 and epoch % save_every_n == 0):
-                        last_ckpt = checkpoint_path(
-                            cfg.training.ckpt_dir, cfg.training.ckpt_basename, epoch
+                        best_ckpt = checkpoint_path(
+                            cfg.training.ckpt_dir,
+                            cfg.training.ckpt_basename,
+                            epoch,
                         )
                         save_checkpoint(
-                            last_ckpt,
+                            best_ckpt,
                             epoch=epoch,
                             model=_maybe_unwrap(self.model),
                             optimizers=self.optimizers,
                             global_step=self.global_step,
                         )
-                        if tui is not None:
-                            suffix = " (final)" if is_last_epoch else ""
-                            tui.event(f"epoch {epoch + 1} done · saved {last_ckpt.name}{suffix}")
 
             if tui is not None:
                 tui.event("training complete")
 
         if self.dist_env.is_main:
             self.logger.close()
-            self._maybe_push_to_hub(last_ckpt, tui)
+            self._maybe_push_to_hub(best_ckpt, tui)
 
     def _maybe_push_to_hub(self, ckpt: Path | None, tui: TrainingTUI | None) -> None:
         hf_cfg = self.cfg.training.get("hf", None)

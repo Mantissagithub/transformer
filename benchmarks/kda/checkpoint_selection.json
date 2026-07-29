@@ -1,0 +1,103 @@
+{
+  "selection_metric": "eval_loss",
+  "best": {
+    "checkpoint": "weights/meeting_model_kda04.pt",
+    "epoch": 4,
+    "global_step": 3230,
+    "eval_loss": 2.538125460359437,
+    "perplexity": 12.655924688596942,
+    "token_accuracy": 0.5496868794867878,
+    "top_5_accuracy": 0.739987780662899,
+    "non_pad_tokens": 65470,
+    "eval_tokens_per_sec": 7174.222064797895,
+    "avg_forward_latency_ms": 8.36669896402354,
+    "peak_cuda_memory_mb": 189.513216,
+    "wall_time_sec": 9.381119900004705
+  },
+  "checkpoints": [
+    {
+      "checkpoint": "weights/meeting_model_kda00.pt",
+      "epoch": 0,
+      "global_step": 646,
+      "eval_loss": 3.3420147671633247,
+      "perplexity": 28.276038988520032,
+      "token_accuracy": 0.43791049335573545,
+      "top_5_accuracy": 0.6443867420192455,
+      "non_pad_tokens": 65470,
+      "eval_tokens_per_sec": 5919.4885592560195,
+      "avg_forward_latency_ms": 10.526068560646861,
+      "peak_cuda_memory_mb": 189.513216,
+      "wall_time_sec": 11.340689132994157
+    },
+    {
+      "checkpoint": "weights/meeting_model_kda04.pt",
+      "epoch": 4,
+      "global_step": 3230,
+      "eval_loss": 2.538125460359437,
+      "perplexity": 12.655924688596942,
+      "token_accuracy": 0.5496868794867878,
+      "top_5_accuracy": 0.739987780662899,
+      "non_pad_tokens": 65470,
+      "eval_tokens_per_sec": 7174.222064797895,
+      "avg_forward_latency_ms": 8.36669896402354,
+      "peak_cuda_memory_mb": 189.513216,
+      "wall_time_sec": 9.381119900004705
+    },
+    {
+      "checkpoint": "weights/meeting_model_kda08.pt",
+      "epoch": 8,
+      "global_step": 5814,
+      "eval_loss": 2.5980207645712836,
+      "perplexity": 13.437116481531302,
+      "token_accuracy": 0.5645639224072094,
+      "top_5_accuracy": 0.7346723690239805,
+      "non_pad_tokens": 65470,
+      "eval_tokens_per_sec": 7146.074581496606,
+      "avg_forward_latency_ms": 8.376876673386427,
+      "peak_cuda_memory_mb": 189.513216,
+      "wall_time_sec": 9.424036993004847
+    },
+    {
+      "checkpoint": "weights/meeting_model_kda12.pt",
+      "epoch": 12,
+      "global_step": 8398,
+      "eval_loss": 2.716400033826407,
+      "perplexity": 15.125771847074693,
+      "token_accuracy": 0.5696502214754849,
+      "top_5_accuracy": 0.7335573545135177,
+      "non_pad_tokens": 65470,
+      "eval_tokens_per_sec": 7105.788718952639,
+      "avg_forward_latency_ms": 8.417756049818756,
+      "peak_cuda_memory_mb": 189.513216,
+      "wall_time_sec": 9.422107539998251
+    },
+    {
+      "checkpoint": "weights/meeting_model_kda16.pt",
+      "epoch": 16,
+      "global_step": 10982,
+      "eval_loss": 2.8412642632474676,
+      "perplexity": 17.137418054823875,
+      "token_accuracy": 0.5725217656942111,
+      "top_5_accuracy": 0.7294333282419428,
+      "non_pad_tokens": 65470,
+      "eval_tokens_per_sec": 6705.327393350996,
+      "avg_forward_latency_ms": 8.789639870137783,
+      "peak_cuda_memory_mb": 189.513216,
+      "wall_time_sec": 9.841095417999895
+    },
+    {
+      "checkpoint": "weights/meeting_model_kda19.pt",
+      "epoch": 19,
+      "global_step": 12920,
+      "eval_loss": 2.9068613082957993,
+      "perplexity": 18.29927256106467,
+      "token_accuracy": 0.573713151061555,
+      "top_5_accuracy": 0.7278295402474416,
+      "non_pad_tokens": 65470,
+      "eval_tokens_per_sec": 6550.182904830909,
+      "avg_forward_latency_ms": 8.978866985752967,
+      "peak_cuda_memory_mb": 189.513216,
+      "wall_time_sec": 10.07111423900642
+    }
+  ]
+}

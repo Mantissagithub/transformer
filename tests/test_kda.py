@@ -1,8 +1,10 @@
 import math
 
+import pytest
 import torch
+import torch.nn.functional as F
 
-from src.components.attention.kda import KimiDeltaAttention, _recurrent_kda
+from src.components.attention.kda import KimiDeltaAttention, _chunk_kda, _recurrent_kda
 
 
 def _module() -> KimiDeltaAttention:
@@ -32,6 +34,56 @@ def test_recurrent_kda_matches_two_step_equation():
     expected_state = torch.tensor([[[[0.75, 1.0], [0.0, 0.0]]]])
     assert torch.allclose(out, expected_out)
     assert torch.allclose(state, expected_state)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="cuda is required")
+def test_chunk_kda_matches_recurrent_kda_on_cuda():
+    torch.manual_seed(0)
+    shape = (1, 64, 2, 16)
+    query = F.normalize(torch.randn(shape, device="cuda"), dim=-1)
+    key = F.normalize(torch.randn(shape, device="cuda"), dim=-1)
+    value = torch.randn(shape, device="cuda", dtype=torch.bfloat16)
+    log_decay = -5.0 * torch.sigmoid(torch.randn(shape, device="cuda"))
+    beta = torch.sigmoid(torch.randn(shape[:-1], device="cuda"))
+    initial_state = torch.randn(1, 2, 16, 16, device="cuda") * 0.01
+
+    expected, expected_state = _recurrent_kda(
+        query,
+        key,
+        value,
+        log_decay,
+        beta,
+        initial_state,
+    )
+    actual, actual_state = _chunk_kda(
+        query,
+        key,
+        value,
+        log_decay,
+        beta,
+        initial_state,
+        True,
+        -5.0,
+    )
+
+    assert actual_state is not None
+    assert torch.allclose(actual.float(), expected, atol=2e-2, rtol=2e-2)
+    assert torch.allclose(actual_state, expected_state, atol=2e-2, rtol=2e-2)
+
+    train_inputs = [
+        tensor.detach().requires_grad_()
+        for tensor in (query, key, value, log_decay, beta, initial_state)
+    ]
+    train_out, train_state = _chunk_kda(
+        *train_inputs[:5],
+        train_inputs[5],
+        True,
+        -5.0,
+    )
+    assert train_state is not None
+    (train_out.float().square().mean() + train_state.square().mean()).backward()
+    assert all(tensor.grad is not None for tensor in train_inputs)
+    assert all(torch.isfinite(tensor.grad).all() for tensor in train_inputs)
 
 
 def test_kda_gate_stays_inside_k3_bounds():

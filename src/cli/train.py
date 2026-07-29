@@ -22,8 +22,10 @@ def main(cfg: DictConfig) -> None:
     seed_everything(cfg.seed)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
-    ensure_hf_credentials(cfg, prompt_if_missing=bool(cfg.training.get("tui", True)))
-    ensure_logging_backend(cfg)
+    use_tui = bool(cfg.training.get("tui", True))
+    ensure_hf_credentials(cfg, prompt_if_missing=use_tui)
+    if use_tui:
+        ensure_logging_backend(cfg)
     Trainer(cfg).fit()
 
 

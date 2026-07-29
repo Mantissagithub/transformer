@@ -16,6 +16,7 @@ dependencies = [
     "pyyaml",
     "python-dotenv",
     "rich>=15.0.0",
+    "flash-linear-attention==0.5.0",
 ]
 
 [project.optional-dependencies]

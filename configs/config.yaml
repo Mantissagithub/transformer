@@ -24,9 +24,10 @@ training:
   grad_clip: 0.0
   ckpt_dir: weights
   ckpt_basename: meeting_model
-  preload: null
+  preload: null                 # epoch number for old checkpoints, or best
   tui: true
-  save_every_n_epochs: 4    # save+push to HF every N epochs; 0 = only at end of training
+  # validation runs halfway through every epoch and at the end; only the best checkpoint stays on disk
+  save_every_n_epochs: 4        # fallback for streaming datasets without a validation split
   hf:
     push: false
     repo_id: null            # auto-derived as {HF_USERNAME}/{experiment_name} if null

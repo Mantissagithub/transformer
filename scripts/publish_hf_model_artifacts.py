@@ -35,7 +35,7 @@ class ModelTarget:
     repo_id: str
     run_name: str
     config_path: Path
-    event_dir: Path
+    event_file: Path
     checkpoint_file: str
 
 
@@ -46,7 +46,7 @@ def main() -> None:
     api = HfApi(token=token)
 
     collection_slug, collection_repos = _collection_repos(api)
-    repo_ids = _ordered_unique([*collection_repos, *EXTRA_REPOS])
+    repo_ids = args.repo_id or _ordered_unique([*collection_repos, *EXTRA_REPOS])
     publishable_targets = []
     skipped_repo_ids = []
     for repo_id in repo_ids:
@@ -68,9 +68,10 @@ def main() -> None:
         for target in targets:
             print(f"{target.repo_id}")
             print(f"  config: {target.config_path}")
-            print(f"  events: {target.event_dir}")
+            print(f"  events: {target.event_file}")
         return
 
+    metrics = _load_metrics(Path(args.metrics_file)) if args.metrics_file else {}
     with tempfile.TemporaryDirectory(prefix="transformer-hf-publish-") as tmp:
         tmp_root = Path(tmp)
         available_table = _available_models_table(targets)
@@ -78,7 +79,15 @@ def main() -> None:
         for target in targets:
             out_dir = tmp_root / target.repo_id.replace("/", "__")
             out_dir.mkdir(parents=True, exist_ok=True)
-            artifacts = _build_artifacts(root, target, targets, available_table, template, out_dir)
+            artifacts = _build_artifacts(
+                root,
+                target,
+                targets,
+                available_table,
+                template,
+                out_dir,
+                metrics.get(target.repo_id),
+            )
             _upload_artifacts(api, token, target.repo_id, artifacts)
 
         _ensure_collection_membership(api, collection_slug, repo_ids)
@@ -94,6 +103,16 @@ def _parse_args() -> argparse.Namespace:
         "--dry-run",
         action="store_true",
         help="Resolve targets and local artifact sources without uploading.",
+    )
+    parser.add_argument(
+        "--repo-id",
+        action="append",
+        default=[],
+        help="Publish a specific repo; repeatable.",
+    )
+    parser.add_argument(
+        "--metrics-file",
+        help="Optional benchmark results.jsonl used to populate evaluation metrics.",
     )
     return parser.parse_args()
 
@@ -171,12 +190,12 @@ def _remove_from_collection(api: HfApi, collection_slug: str, repo_id: str) -> N
 def _resolve_target(root: Path, repo_id: str, checkpoint_file: str) -> ModelTarget:
     run_name = _run_name(repo_id)
     config_path = _latest_config(root / "outputs" / run_name)
-    event_dir = _event_dir(root / "runs", run_name)
+    event_file = _event_file(root / "runs", run_name)
     return ModelTarget(
         repo_id=repo_id,
         run_name=run_name,
         config_path=config_path,
-        event_dir=event_dir,
+        event_file=event_file,
         checkpoint_file=checkpoint_file,
     )
 
@@ -196,18 +215,20 @@ def _latest_config(output_dir: Path) -> Path:
     return max(configs, key=lambda path: path.stat().st_mtime)
 
 
-def _event_dir(runs_dir: Path, run_name: str) -> Path:
+def _event_file(runs_dir: Path, run_name: str) -> Path:
     direct = runs_dir / run_name
-    if direct.exists() and list(direct.glob("events.out.tfevents*")):
-        return direct
+    direct_events = list(direct.glob("events.out.tfevents*")) if direct.exists() else []
+    if direct_events:
+        return max(direct_events, key=lambda path: path.stat().st_mtime)
 
-    candidates = sorted(
-        path
+    candidates = [
+        event
         for path in runs_dir.glob(f"{run_name}*")
-        if path.is_dir() and list(path.glob("events.out.tfevents*"))
-    )
+        if path.is_dir()
+        for event in path.glob("events.out.tfevents*")
+    ]
     if not candidates:
-        raise RuntimeError(f"no TensorBoard event dir found for {run_name}")
+        raise RuntimeError(f"no TensorBoard event file found for {run_name}")
     return max(candidates, key=lambda path: path.stat().st_mtime)
 
 
@@ -218,6 +239,7 @@ def _build_artifacts(
     available_table: str,
     template: str,
     out_dir: Path,
+    metrics: dict | None,
 ) -> list[Path]:
     cfg = yaml.safe_load(target.config_path.read_text())
     model_meta = _model_meta(target.repo_id, cfg)
@@ -228,10 +250,12 @@ def _build_artifacts(
     architecture_png = out_dir / "architecture.png"
     _write_architecture_diagram(architecture_png, cfg, model_meta)
 
-    loss_rows = _loss_rows(target.event_dir)
+    loss_rows = _loss_rows(target.event_file)
     loss_csv = out_dir / "loss_curve.csv"
     _write_loss_csv(loss_csv, loss_rows)
     _write_loss_svg(out_dir / "loss_curve.svg", loss_rows, model_meta["attention"])
+    model_meta["training_steps"] = f"{loss_rows[-1][1]:,}"
+    model_meta["logged_training_time"] = _format_duration(loss_rows[-1][0] - loss_rows[0][0])
 
     readme = template.format(
         available_models_table=available_table,
@@ -239,6 +263,9 @@ def _build_artifacts(
         model_title=_model_title(target.run_name),
         repo_id=target.repo_id,
         architecture_file=architecture_png.name,
+        evaluation_table=_evaluation_table(metrics),
+        model_index=_model_index(target, metrics),
+        tokenizer_files=_tokenizer_files_table(model_meta["model_kind"]),
         **model_meta,
     )
     (out_dir / "README.md").write_text(readme)
@@ -266,6 +293,10 @@ def _model_meta(repo_id: str, cfg: dict) -> dict[str, str]:
         "d_model": str(model.get("d_model", "unknown")),
         "n_heads": str(cfg["attention"].get("n_heads", "unknown")),
         "batch_size": str(training.get("batch_size", "unknown")),
+        "effective_batch_size": str(
+            int(training.get("batch_size", 1))
+            * int(training.get("gradient_accumulation_steps", 1))
+        ),
         "num_epochs": str(training.get("num_epochs", "unknown")),
         "precision": str(training.get("precision", "fp32")),
         "model_kind": str(model.get("kind", "encoder_decoder")),
@@ -273,6 +304,111 @@ def _model_meta(repo_id: str, cfg: dict) -> dict[str, str]:
         if str(model.get("kind", "encoder_decoder")) == "causal_lm"
         else "build_transformer",
     }
+
+
+def _load_metrics(path: Path) -> dict[str, dict]:
+    metrics = {}
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if row.get("status") == "ok" and row.get("repo_id"):
+            metrics[row["repo_id"]] = row
+    return metrics
+
+
+def _evaluation_table(metrics: dict | None) -> str:
+    if not metrics:
+        return "Evaluation metrics have not been attached yet."
+
+    rows = ["| Metric | Value |", "|---|---:|"]
+    fields = [
+        ("Validation loss", "eval_loss", 4),
+        ("Perplexity", "perplexity", 4),
+        ("Token accuracy", "token_accuracy", 4),
+        ("Top-5 accuracy", "top_5_accuracy", 4),
+        ("ROUGE-1", "rouge1", 4),
+        ("ROUGE-2", "rouge2", 4),
+        ("ROUGE-L", "rougeL", 4),
+        ("BLEU", "bleu", 2),
+        ("BERTScore F1", "bertscore_f1", 4),
+        ("Evaluation tokens/s", "eval_tokens_per_sec", 1),
+        ("Generation tokens/s", "generation_tokens_per_sec", 1),
+        ("Forward latency (ms)", "avg_forward_latency_ms", 2),
+        ("Peak CUDA memory (MB)", "peak_cuda_memory_mb", 1),
+    ]
+    for label, key, digits in fields:
+        value = metrics.get(key)
+        if value is not None:
+            rows.append(f"| {label} | {float(value):.{digits}f} |")
+    return "\n".join(rows)
+
+
+def _model_index(target: ModelTarget, metrics: dict | None) -> str:
+    if not metrics:
+        return ""
+
+    fields = [
+        ("loss", "Validation loss", "eval_loss"),
+        ("perplexity", "Perplexity", "perplexity"),
+        ("accuracy", "Token accuracy", "token_accuracy"),
+        ("accuracy", "Top-5 accuracy", "top_5_accuracy"),
+        ("rouge", "ROUGE-1", "rouge1"),
+        ("rouge", "ROUGE-2", "rouge2"),
+        ("rouge", "ROUGE-L", "rougeL"),
+        ("bleu", "BLEU", "bleu"),
+        ("bertscore", "BERTScore F1", "bertscore_f1"),
+    ]
+    lines = [
+        "model-index:",
+        f"- name: {_model_title(target.run_name)}",
+        "  results:",
+        "  - task:",
+        "      type: summarization",
+        "      name: Meeting summarization",
+        "    dataset:",
+        "      type: huuuyeah/meetingbank",
+        "      name: MeetingBank",
+        "      split: validation",
+        "    metrics:",
+    ]
+    for metric_type, name, key in fields:
+        value = metrics.get(key)
+        if value is None:
+            continue
+        lines.extend(
+            [
+                f"    - type: {metric_type}",
+                f"      name: {name}",
+                f"      value: {float(value)}",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def _format_duration(seconds: float) -> str:
+    minutes, seconds = divmod(round(seconds), 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours}h {minutes}m {seconds}s"
+    return f"{minutes}m {seconds}s"
+
+
+def _tokenizer_files_table(model_kind: str) -> str:
+    if model_kind == "causal_lm":
+        return "\n".join(
+            [
+                "| `tokenizer.json` | Unified MeetingBank transcript and summary tokenizer. |",
+                "| `causal_tokenizer.json` | Explicit alias of the unified causal tokenizer. |",
+            ]
+        )
+    return "\n".join(
+        [
+            "| `tokenizer.json` | MeetingBank transcript tokenizer alias for source inputs. |",
+            "| `transcript_tokenizer.json` | Explicit MeetingBank transcript tokenizer. |",
+            "| `summary_tokenizer.json` | MeetingBank summary tokenizer for target text. |",
+        ]
+    )
 
 
 def _model_title(run_name: str) -> str:
@@ -1209,26 +1345,25 @@ def _copy_tokenizers(root: Path, out_dir: Path, cfg: dict) -> list[Path]:
     transcript = root / "tokenizers" / "meetingbank_transcript.json"
     summary = root / "tokenizers" / "meetingbank_summary.json"
     causal = root / "tokenizers" / "meetingbank_causal.json"
-    if not transcript.exists() or not summary.exists():
-        raise RuntimeError("MeetingBank tokenizer files are missing")
-    if str(cfg.get("model", {}).get("kind", "encoder_decoder")) == "causal_lm" and not causal.exists():
-        raise RuntimeError("MeetingBank causal tokenizer file is missing")
+    model_kind = str(cfg.get("model", {}).get("kind", "encoder_decoder"))
 
     tokenizer = out_dir / "tokenizer.json"
-    transcript_out = out_dir / "transcript_tokenizer.json"
-    summary_out = out_dir / "summary_tokenizer.json"
-    if str(cfg.get("model", {}).get("kind", "encoder_decoder")) == "causal_lm":
+    if model_kind == "causal_lm":
+        if not causal.exists():
+            raise RuntimeError("MeetingBank causal tokenizer file is missing")
         causal_out = out_dir / "causal_tokenizer.json"
         shutil.copyfile(causal, tokenizer)
         shutil.copyfile(causal, causal_out)
-    else:
-        shutil.copyfile(transcript, tokenizer)
+        return [tokenizer, causal_out]
+
+    if not transcript.exists() or not summary.exists():
+        raise RuntimeError("MeetingBank encoder-decoder tokenizer files are missing")
+    transcript_out = out_dir / "transcript_tokenizer.json"
+    summary_out = out_dir / "summary_tokenizer.json"
+    shutil.copyfile(transcript, tokenizer)
     shutil.copyfile(transcript, transcript_out)
     shutil.copyfile(summary, summary_out)
-    artifacts = [tokenizer, transcript_out, summary_out]
-    if str(cfg.get("model", {}).get("kind", "encoder_decoder")) == "causal_lm":
-        artifacts.append(out_dir / "causal_tokenizer.json")
-    return artifacts
+    return [tokenizer, transcript_out, summary_out]
 
 
 def _upload_artifacts(api: HfApi, token: str, repo_id: str, artifacts: list[Path]) -> None:

@@ -59,6 +59,50 @@ Plus: bf16/fp16 autocast, gradient accumulation, `torch.compile`, DDP/FSDP, HF H
 
 Evaluation metrics (loss, perplexity, token/top-5 accuracy, ROUGE, BLEU, throughput, latency, peak memory) — what they measure, why they matter, and how they're computed — are documented in [`docs/metrics.md`](docs/metrics.md).
 
+## KDA: the 534-hour run was an implementation bug
+
+The first Kimi Delta Attention run used the recurrence literally in Python: one state update per token, per layer. At 768 tokens that meant thousands of serial CUDA launches for every batch. The progress display eventually estimated 534 hours. That was not KDA being inherently unusable; it was the wrong execution path.
+
+The CUDA implementation now uses FLA's chunkwise KDA kernel while keeping the exact recurrence as the CPU reference. The fresh 20-epoch MeetingBank run finished all 12,920 optimizer updates in about one hour on the local RTX 4060 Laptop GPU. It used bf16, physical batch size 1, and eight-step gradient accumulation for an effective batch size of 8.
+
+![KDA training loss](docs/assets/kda_training_loss.svg)
+
+This is the unsmoothed `train/loss` series from the completed run. The final logged training loss was 1.3462, but the final checkpoint was not the best one. I evaluated every checkpoint that the run actually saved on the full MeetingBank validation split:
+
+| saved epoch | optimizer step | validation loss |
+|---:|---:|---:|
+| 0 | 646 | 3.3420 |
+| **4** | **3,230** | **2.5381** |
+| 8 | 5,814 | 2.5980 |
+| 12 | 8,398 | 2.7164 |
+| 16 | 10,982 | 2.8413 |
+| 19 | 12,920 | 2.9069 |
+
+Epoch 4 is the checkpoint on the Hub. Later epochs still raise token accuracy a little, but validation cross-entropy gets worse, so uploading epoch 19 just because it was last would hide the overfitting.
+
+Future runs do this selection while training: validation runs halfway through every epoch and again at epoch end, and `*_best.pt` is overwritten only when `current_val_loss < best_val_loss`. That keeps one useful checkpoint on disk instead of another 354 MiB file every few epochs.
+
+The published checkpoint was then evaluated through the same [`benchmark_hf_collection.py`](scripts/benchmark_hf_collection.py) path used for the other attention models: core metrics over the complete 861-batch validation loader and generation metrics over 128 greedy summaries.
+
+| metric | KDA epoch 4 |
+|---|---:|
+| validation loss | 2.5381 |
+| perplexity | 12.6559 |
+| token accuracy | 0.5497 |
+| top-5 accuracy | 0.7400 |
+| ROUGE-1 | 0.2556 |
+| ROUGE-2 | 0.0853 |
+| ROUGE-L | 0.2055 |
+| BLEU | 7.90 |
+| evaluation throughput | 4,789 tok/s |
+| generation throughput | 92.86 tok/s |
+| average forward latency | 13.17 ms |
+| peak CUDA memory | 189.5 MB |
+| parameters | 30,896,560 |
+| checkpoint size | 370.9 MB |
+
+The raw checkpoint ranking and standalone outputs live in [`benchmarks/kda`](benchmarks/kda). KDA is also merged into the combined loss, quality, throughput, and tradeoff charts in [`benchmarks/attention`](benchmarks/attention). The best checkpoint, exact 12,920-point loss CSV/SVG, config, tokenizer, architecture image, and metric-bearing model card are published at [`Pradheep1647/meeting_summarization_kda-meetingbank-bs8-e20-bf16-4`](https://huggingface.co/Pradheep1647/meeting_summarization_kda-meetingbank-bs8-e20-bf16-4) and included in the [`transformer-lab` collection](https://huggingface.co/collections/Pradheep1647/transformer-lab-6a07fe3185f5728e217997e0).
+
 ## MSA paper-alignment: old vs new
 
 The first cut of MSA (minimax sparse attention) was close to the paper but not exact. [`fix(attention): align msa with paper`](../../commit/e1a3421) corrected it. To check the fix was actually worth it I trained both versions on the same footing — MeetingBank causal summarization, 20 epochs, batch 8, fp32, lr 1e-4, identical seed/data — and evaluated the final checkpoints on the validation split (core metrics over 100 batches, ROUGE/BLEU over 16 generated summaries).

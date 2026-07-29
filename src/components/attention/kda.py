@@ -97,6 +97,34 @@ def _recurrent_kda(
     return torch.stack(outputs, dim=1), state
 
 
+def _chunk_kda(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    log_decay: torch.Tensor,
+    beta: torch.Tensor,
+    initial_state: torch.Tensor | None,
+    output_final_state: bool,
+    gate_lower_bound: float,
+) -> tuple[torch.Tensor, torch.Tensor | None]:
+    from fla.ops.kda import chunk_kda
+
+    # tensor cores handle qkv while decay and the recurrent state stay fp32.
+    kernel_dtype = v.dtype
+    return chunk_kda(
+        q=q.to(kernel_dtype),
+        k=k.to(kernel_dtype),
+        v=v,
+        g=log_decay,
+        beta=beta.to(kernel_dtype),
+        scale=q.shape[-1] ** -0.5,
+        initial_state=initial_state,
+        output_final_state=output_final_state,
+        safe_gate=gate_lower_bound >= -5.0,
+        lower_bound=gate_lower_bound,
+    )
+
+
 @ATTENTION.register("kda")
 class KimiDeltaAttention(AttentionBase):
     def __init__(
@@ -232,14 +260,27 @@ class KimiDeltaAttention(AttentionBase):
 
         log_decay, beta = self._gates(x)
         initial_state = None if past_kv is None else past_kv.recurrent_state
-        recurrent_out, final_state = _recurrent_kda(
-            query,
-            key,
-            value,
-            log_decay,
-            beta,
-            initial_state,
-        )
+        needs_state = past_kv is not None or return_kv
+        if query.is_cuda:
+            recurrent_out, final_state = _chunk_kda(
+                query,
+                key,
+                value,
+                log_decay,
+                beta,
+                initial_state,
+                needs_state,
+                self.gate_lower_bound,
+            )
+        else:
+            recurrent_out, final_state = _recurrent_kda(
+                query,
+                key,
+                value,
+                log_decay,
+                beta,
+                initial_state,
+            )
 
         gate = torch.sigmoid(self.output_gate(x).float()).view(
             b,
@@ -254,6 +295,7 @@ class KimiDeltaAttention(AttentionBase):
         if past_kv is not None or return_kv:
             if past_kv is None:
                 past_kv = self.init_cache()
+            assert final_state is not None
             past_kv.recurrent_state = final_state
             past_kv.q_history = next_q_history
             past_kv.k_history = next_k_history
